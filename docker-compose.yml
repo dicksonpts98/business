@@ -1,0 +1,18 @@
+# Optional convenience for contributors who have Docker. The application does
+# not require Docker; any reachable PostgreSQL 16+ works. See README.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: supplyquest
+      POSTGRES_PASSWORD: supplyquest_dev
+      POSTGRES_DB: supplyquest
+    ports: ["5432:5432"]
+    volumes: ["sqhq_pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supplyquest -d supplyquest"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+volumes:
+  sqhq_pgdata:

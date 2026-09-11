@@ -1,0 +1,33 @@
+{
+  "name": "supplyquest-hq",
+  "private": true,
+  "version": "0.1.0",
+  "description": "SupplyQuest HQ \u2014 a 3D agent workspace for operating a small Canadian import business, with evidence-labelled research, deterministic finance, and backend-enforced approvals.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/shared",
+    "packages/server",
+    "packages/web"
+  ],
+  "scripts": {
+    "build": "npm run build -w @sqhq/shared && npm run build -w @sqhq/server && npm run build -w @sqhq/web",
+    "typecheck": "npm run typecheck -w @sqhq/shared && npm run typecheck -w @sqhq/server && npm run typecheck -w @sqhq/web",
+    "test": "npm run test -w @sqhq/shared && npm run test -w @sqhq/server",
+    "migrate": "npm run migrate -w @sqhq/server",
+    "seed": "npm run seed -w @sqhq/server",
+    "reset": "npm run reset -w @sqhq/server",
+    "dev": "npm run dev -w @sqhq/server & npm run dev -w @sqhq/web",
+    "dev:server": "npm run dev -w @sqhq/server",
+    "dev:web": "npm run dev -w @sqhq/web"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/node": "22.20.2"
+  },
+  "overrides": {
+    "vitest": "4.1.11"
+  }
+}

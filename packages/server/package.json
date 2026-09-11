@@ -1,0 +1,32 @@
+{
+  "name": "@sqhq/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "migrate": "tsx src/cli/migrate.ts",
+    "seed": "tsx src/cli/seed.ts",
+    "reset": "tsx src/cli/reset.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@sqhq/shared": "*",
+    "@anthropic-ai/sdk": "0.125.0",
+    "@fastify/cors": "11.3.0",
+    "dotenv": "17.4.2",
+    "fastify": "5.12.4",
+    "pg": "8.23.0",
+    "zod": "4.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.2",
+    "@types/pg": "8.23.1",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}
