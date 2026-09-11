@@ -114,13 +114,64 @@ function isPrivateAddress(address: string): boolean {
     if (a >= 224) return true;                        // multicast / reserved
     return false;
   }
-  const lower = address.toLowerCase();
-  if (lower === '::' || lower === '::1') return true;
-  if (lower.startsWith('fe80') || lower.startsWith('fc') || lower.startsWith('fd')) return true;
-  // IPv4-mapped IPv6, e.g. ::ffff:127.0.0.1
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(lower);
-  if (mapped?.[1] !== undefined) return isPrivateAddress(mapped[1]);
+  const hextets = expandIpv6(address);
+  if (hextets === null) return true; // Unparseable: refuse rather than allow.
+
+  // IPv4-mapped (::ffff:0:0/96) and IPv4-compatible (::/96) addresses embed an
+  // IPv4 address in the low 32 bits. WHATWG URL serialises these in HEX form,
+  // so `[::ffff:127.0.0.1]` arrives as `::ffff:7f00:1` and a textual
+  // dotted-quad check never matches it. Extract and re-check the IPv4 address.
+  const highIsZero = hextets.slice(0, 5).every((h) => h === 0);
+  if (highIsZero && (hextets[5] === 0xffff || hextets[5] === 0)) {
+    const hi = hextets[6] ?? 0;
+    const lo = hextets[7] ?? 0;
+    const embedded = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+    // `::` and `::1` fall out of this as 0.0.0.0 and 0.0.0.1, both refused.
+    if (embedded === '0.0.0.0' || embedded === '0.0.0.1') return true;
+    if (hextets[5] === 0xffff) return isPrivateAddress(embedded);
+  }
+
+  const first = hextets[0] ?? 0;
+  if ((first & 0xffc0) === 0xfe80) return true;          // fe80::/10 link-local
+  if ((first & 0xfe00) === 0xfc00) return true;          // fc00::/7 unique-local
+  if (first === 0x0000 && hextets.every((h) => h === 0)) return true; // ::
+  if ((first & 0xff00) === 0xff00) return true;          // ff00::/8 multicast
   return false;
+}
+
+/** Expand an IPv6 string, including "::" compression, to eight 16-bit groups. */
+function expandIpv6(address: string): number[] | null {
+  let text = address.toLowerCase().replace(/%.*$/, ''); // drop any zone id
+  // A trailing dotted-quad (e.g. ::ffff:127.0.0.1) becomes two hextets.
+  const dotted = /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(text);
+  if (dotted?.[1] !== undefined) {
+    const octets = dotted[1].split('.').map(Number);
+    if (octets.some((o) => !Number.isInteger(o) || o < 0 || o > 255)) return null;
+    const [a = 0, b = 0, c = 0, d = 0] = octets;
+    const hi = ((a << 8) | b).toString(16);
+    const lo = ((c << 8) | d).toString(16);
+    text = `${text.slice(0, dotted.index)}${hi}:${lo}`;
+  }
+
+  const halves = text.split('::');
+  if (halves.length > 2) return null;
+  const parseGroups = (part: string): number[] | null => {
+    if (part === '') return [];
+    const out: number[] = [];
+    for (const g of part.split(':')) {
+      if (!/^[0-9a-f]{1,4}$/.test(g)) return null;
+      out.push(Number.parseInt(g, 16));
+    }
+    return out;
+  };
+  const head = parseGroups(halves[0] ?? '');
+  if (head === null) return null;
+  if (halves.length === 1) return head.length === 8 ? head : null;
+  const tail = parseGroups(halves[1] ?? '');
+  if (tail === null) return null;
+  const fill = 8 - head.length - tail.length;
+  if (fill < 0) return null;
+  return [...head, ...Array.from({ length: fill }, () => 0), ...tail];
 }
 
 /**

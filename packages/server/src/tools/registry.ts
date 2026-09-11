@@ -292,10 +292,26 @@ const DEFINITIONS: ReadonlyMap<string, ToolDefinition> = new Map(
 /**
  * Execute a tool call.
  *
- * Order is deliberate: shape validation, then enforcement, then idempotency,
- * then execution. Validating first means a malformed call is rejected without
- * consuming an approval. Enforcing before idempotency means an unapproved
- * replay cannot register a key.
+ * Order is deliberate:
+ *
+ *   1. Shape validation. A malformed call is rejected without consuming an
+ *      approval, so a typo never spends the owner's consent.
+ *   2. Idempotency REPLAY CHECK. If this exact (key, request-hash) pair already
+ *      completed, the recorded outcome is returned and nothing else happens.
+ *      This is a pure read of an effect this workspace already produced: it
+ *      dispatches nothing and creates nothing. It must come before approval
+ *      consumption, because the first call consumed the approval — so checking
+ *      enforcement first would refuse every legitimate retry with
+ *      APPROVAL_ALREADY_CONSUMED, and a caller that cannot distinguish "already
+ *      done" from "refused" will either duplicate the action through another
+ *      path or abandon completed work.
+ *   3. Enforcement: emergency stop, lease validity, agent permissions, and
+ *      atomic consumption of a content-matched approval.
+ *   4. Idempotency registration, then execution, then finalisation.
+ *
+ * Replay safety therefore has two independent layers: the key check short-
+ * circuits known requests, and single-use approval consumption stops an unknown
+ * key from spending the same consent twice.
  */
 export async function callTool(
   ctx: ToolContext,
@@ -340,6 +356,38 @@ export async function callTool(
     return { outcome: 'refused', code: 'ARGS_INVALID', reason, toolCallId: id };
   }
 
+  // Step 2: replay check. Reads only; never dispatches.
+  let requestHash: string | null = null;
+  let idempotencyKey: string | null = null;
+  if (privileged) {
+    const args = parsed.data as { idempotencyKey: string };
+    idempotencyKey = args.idempotencyKey;
+    requestHash = hashToolRequest(toolName, parsed.data);
+    const existing = await ctx.client.query<{
+      outcome_state: string; response: unknown; request_hash: string; external_ref: string | null;
+    }>(
+      'SELECT outcome_state, response, request_hash, external_ref FROM idempotency_key WHERE workspace_id = $1 AND key = $2 FOR UPDATE',
+      [ctx.workspaceId, idempotencyKey],
+    );
+    const prior = existing.rows[0];
+    if (prior !== undefined) {
+      if (prior.request_hash !== requestHash) {
+        const reason = 'This idempotency key was already used for a DIFFERENT request. Reusing a key with new content would make the replay guarantee meaningless.';
+        const id = await record('refused', { code: 'IDEMPOTENCY_KEY_REUSED', reason, idempotencyKey });
+        return { outcome: 'refused', code: 'IDEMPOTENCY_KEY_REUSED', reason, toolCallId: id };
+      }
+      const id = await record('succeeded', { idempotencyKey });
+      return {
+        outcome: 'succeeded',
+        result: {
+          replayed: true, response: prior.response,
+          externalRef: prior.external_ref, outcomeState: prior.outcome_state,
+        },
+        toolCallId: id, replayed: true,
+      };
+    }
+  }
+
   const enforcement = await enforceToolCall(ctx.client, {
     workspaceId: ctx.workspaceId,
     runId: ctx.runId,
@@ -361,32 +409,10 @@ export async function callTool(
     return { outcome: 'refused', code: enforcement.code, reason: enforcement.reason, toolCallId: id };
   }
 
-  // Idempotency for external effects: an identical replay returns the recorded
-  // outcome rather than dispatching twice. Exactly-once delivery is never
-  // promised; this plus reconciliation is what makes a replay safe.
-  let idempotencyKey: string | null = null;
-  if (privileged) {
-    const args = parsed.data as { idempotencyKey: string };
-    idempotencyKey = args.idempotencyKey;
-    const requestHash = hashToolRequest(toolName, parsed.data);
-    const existing = await ctx.client.query<{ outcome_state: string; response: unknown; request_hash: string; external_ref: string | null }>(
-      'SELECT outcome_state, response, request_hash, external_ref FROM idempotency_key WHERE workspace_id = $1 AND key = $2 FOR UPDATE',
-      [ctx.workspaceId, idempotencyKey],
-    );
-    const prior = existing.rows[0];
-    if (prior !== undefined) {
-      if (prior.request_hash !== requestHash) {
-        const reason = 'This idempotency key was already used for a DIFFERENT request. Reusing a key with new content would make the replay guarantee meaningless.';
-        const id = await record('refused', { code: 'IDEMPOTENCY_KEY_REUSED', reason, idempotencyKey });
-        return { outcome: 'refused', code: 'IDEMPOTENCY_KEY_REUSED', reason, toolCallId: id };
-      }
-      const id = await record('succeeded', { approvalId: enforcement.approvalId, idempotencyKey });
-      return {
-        outcome: 'succeeded',
-        result: { replayed: true, response: prior.response, externalRef: prior.external_ref, outcomeState: prior.outcome_state },
-        toolCallId: id, replayed: true,
-      };
-    }
+  // Step 4: register the key now that the call is authorised. The primary key
+  // on (workspace_id, key) means a concurrent duplicate loses this insert
+  // rather than both proceeding to dispatch.
+  if (privileged && idempotencyKey !== null && requestHash !== null) {
     await ctx.client.query(
       `INSERT INTO idempotency_key (workspace_id, key, tool_name, request_hash, outcome_state)
        VALUES ($1,$2,$3,$4,'in_flight')`,

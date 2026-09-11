@@ -35,7 +35,15 @@ export const TERMINAL_TASK_STATES: readonly TaskState[] = ['completed', 'failed'
 const TASK_TRANSITIONS: Record<TaskState, readonly TaskState[]> = {
   draft: ['queued', 'cancelled'],
   queued: ['running', 'waiting_dependency', 'cancelled', 'failed'],
-  running: ['completed', 'failed', 'waiting_input', 'waiting_approval', 'waiting_dependency', 'cancelled'],
+  // `queued` is reachable from `running` and must be: when a run loses its
+  // lease (worker death, timeout, or an archived agent being reassigned) the
+  // task is no longer actually running, and the only honest next state is back
+  // in the queue for a bounded retry. Omitting it made the lease reaper and the
+  // cancel-and-reassign path throw.
+  running: [
+    'completed', 'failed', 'queued', 'waiting_input', 'waiting_approval',
+    'waiting_dependency', 'cancelled',
+  ],
   waiting_dependency: ['queued', 'cancelled', 'failed'],
   waiting_input: ['queued', 'cancelled', 'failed'],
   waiting_approval: ['queued', 'cancelled', 'failed'],
