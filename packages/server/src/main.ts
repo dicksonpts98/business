@@ -60,10 +60,40 @@ app.get('/api/config', async () => ({
   },
 }));
 
-const workspaces = await query<{ id: string; name: string }>(
-  'SELECT id, name FROM workspace ORDER BY created_at LIMIT 1',
-);
-const workspace = workspaces[0];
+/**
+ * Look up the workspace, failing with an explanation rather than a stack trace.
+ * "ECONNREFUSED 127.0.0.1:5432" followed by twelve frames of pg internals tells
+ * the reader nothing they can act on; the three commands below do.
+ */
+let workspace: { id: string; name: string } | undefined;
+try {
+  const workspaces = await query<{ id: string; name: string }>(
+    'SELECT id, name FROM workspace ORDER BY created_at LIMIT 1',
+  );
+  workspace = workspaces[0];
+} catch (error) {
+  const detail = error instanceof Error ? error.message : String(error);
+  const isRefused = detail.includes('ECONNREFUSED');
+  const isMissingTable = detail.includes('relation "workspace" does not exist');
+  console.error([
+    '',
+    'SupplyQuest HQ could not reach its database.',
+    `  ${detail}`,
+    '',
+    isRefused
+      ? 'PostgreSQL does not appear to be accepting connections. Start it, then retry:\n'
+        + '  docker compose up -d db        (or start your own PostgreSQL 16)\n'
+        + `  DATABASE_URL is currently: ${config.databaseUrl.replace(/:[^:@/]*@/, ':****@')}`
+      : isMissingTable
+        ? 'The database is reachable but has no schema yet:\n'
+          + '  npm run migrate\n  npm run seed'
+        : 'Check DATABASE_URL in your .env against .env.example.',
+    '',
+  ].join('\n'));
+  await app.close();
+  await closePool();
+  process.exit(1);
+}
 
 let pool: WorkerPool | null = null;
 if (workspace !== undefined) {

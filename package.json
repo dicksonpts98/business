@@ -21,11 +21,14 @@
     "reset": "npm run reset -w @sqhq/server",
     "dev": "npm run dev -w @sqhq/server & npm run dev -w @sqhq/web",
     "dev:server": "npm run dev -w @sqhq/server",
-    "dev:web": "npm run dev -w @sqhq/web"
+    "dev:web": "npm run dev -w @sqhq/web",
+    "smoke": "node scripts/smoke.mjs",
+    "verify": "npm run typecheck && npm test && npm run build"
   },
   "devDependencies": {
-    "typescript": "5.9.3",
-    "@types/node": "22.20.2"
+    "@types/node": "22.20.2",
+    "playwright": "^1.63.0",
+    "typescript": "5.9.3"
   },
   "overrides": {
     "vitest": "4.1.11"
