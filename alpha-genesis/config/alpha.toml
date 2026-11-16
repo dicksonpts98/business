@@ -1,0 +1,51 @@
+# ALPHA GENESIS — operating configuration (research budgets, universe, schedules).
+# Risk limits live in risk.toml and validation standards in validation_policy.toml;
+# neither of those files is writable by the research engines.
+[universe]
+symbols = ["SPY", "QQQ", "NVDA", "TSLA"]
+market_proxy = "SPY"
+bar_minutes = 5
+
+[data]
+provider = "synthetic"          # synthetic | csv | parquet | alpaca
+synthetic_days = 756
+synthetic_initial_days = 560    # remaining sessions are delivered one at a time by the simulated feed
+synthetic_seed = 7
+synthetic_plant_orb = 0.30        # planted failed-opening-range reversal (positive control); 0 = null market
+synthetic_plant_vwap = 0.04
+synthetic_decay_start = 660       # session index after which the planted effect vanishes (tests deterioration handling)
+
+[instruments.SPY]
+half_spread_bps = 0.5
+shortable = true
+[instruments.QQQ]
+half_spread_bps = 0.6
+shortable = true
+[instruments.NVDA]
+half_spread_bps = 1.5
+shortable = true
+[instruments.TSLA]
+half_spread_bps = 2.0
+shortable = true
+
+[execution]
+commission_per_share_usd = 0.005
+commission_min_usd = 1.0
+slippage_bps = 1.0
+stress_multiplier = 3.0
+participation_cap = 0.02        # max share of a bar's volume one order may take (partial fills beyond)
+last_entry_bar = 71             # no new entries in the final 30 minutes
+quotes_available = false        # spreads are modelled, not observed
+
+[darwin]
+population = 60
+generations = 6
+optuna_trials = 30
+validate_top_k = 10
+seed = 11
+
+[learning]
+evolve_every_sessions = 20
+min_holdout_days = 40
+drift_window_days = 20
+sim_session_interval_seconds = 0   # 0 = sessions advance only on demand (API/CLI); >0 = auto-advance cadence

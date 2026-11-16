@@ -1,0 +1,21 @@
+# RESEARCH SKEPTIC standards. Fixed and independent of the strategy generator.
+min_trades_val = 40
+bootstrap_block_days = 5
+bootstrap_samples = 1000
+bootstrap_lcb_quantile = 0.05     # validation mean daily P&L lower bound must exceed 0
+min_dsr = 0.80                    # Deflated Sharpe Ratio (probability true Sharpe > 0 given trial count)
+max_pbo = 0.50                    # probability of backtest overfitting for the cycle's candidate set
+permutation_samples = 200
+max_permutation_p = 0.05
+sensitivity_neighbors = 20
+min_sensitivity_positive = 0.70
+max_top5_trade_share = 0.60
+max_cost_to_gross = 0.60
+stress_must_be_positive = true
+holdout_min_prob_positive = 0.80
+max_holdout_uses_per_epoch = 5    # after this many looks the holdout is spent; approvals wait for a new epoch
+fdr_alpha = 0.10
+min_shadow_days = 10
+promote_min_prob_beats_champion = 0.75
+quarantine_min_trades = 20
+quarantine_p = 0.05

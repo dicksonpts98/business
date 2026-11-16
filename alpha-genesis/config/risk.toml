@@ -1,0 +1,13 @@
+# RISK GUARDIAN limits. Loaded read-only by guardian.py; changes are operator-only and audited.
+starting_capital_cad = 10000.0
+risk_per_trade_cad = 50.0
+max_daily_loss_cad = 200.0
+max_entries_per_day = 20
+max_positions = 4
+max_total_exposure_x = 2.0       # total notional / equity
+leverage_ceiling_x = 2.0
+max_instrument_exposure_x = 1.0  # per-instrument notional / equity
+stale_data_seconds = 600
+fx_stale_days = 4
+no_entry_last_minutes = 30
+paper_only = true
