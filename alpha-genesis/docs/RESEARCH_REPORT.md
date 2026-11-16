@@ -7,6 +7,15 @@ market-data host that was tried (Stooq, Yahoo Finance, Alpaca) and no broker or 
 available. The required "genuine out-of-sample backtests on real data" therefore **could not be done**
 and are not reported here.
 
+**Update (2026-11-16).** A live connection to the official Alpha Vantage MCP server now works, and
+real data was fetched with a free key: 100 daily bars each for SPY, QQQ, NVDA and TSLA (2026-06-25 →
+2026-11-13) and 100 USD/CAD rates. The free plan refuses 5-minute bars, which every engine here
+requires, so there is still **no real-data evaluation of any strategy**. The only use made of the real
+data is a plausibility check of the synthetic market's scale: real annualised close-to-close
+volatility over those 100 sessions was 14% (SPY), 24% (QQQ), 41% (NVDA), 54% (TSLA) — the same order
+as the generator's instruments. That says the synthetic volatilities are not absurd; it says nothing
+about intraday structure or about any edge.
+
 Everything below comes from a **synthetic** market produced by `alpha_genesis.synthetic` — a
 regime-switching factor model for SPY/QQQ/NVDA/TSLA-like instruments. The names are labels; the
 prices are generated. These experiments answer one question only: *does the research machinery behave

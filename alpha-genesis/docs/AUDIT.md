@@ -38,11 +38,13 @@ against the real thing. **Not built**: absent.
 | Parquet import | Implemented | Same path as CSV after file reading; no dedicated round-trip test. |
 | Exchange calendar with holidays, early closes, DST | Tested | Rule-based; ad-hoc closures need manual entries. |
 | USD/CAD handling with as-of dates and staleness block | Tested | No automated FX fetcher. |
+| MCP client + Alpha Vantage MCP provider: handshake, bearer auth, tool discovery, daily bars, USD/CAD | Tested (simulated server) and verified live | Real data fetched 2026-11-16 with a free key: 100 daily bars × 4 instruments and 100 USD/CAD rates. |
+| Alpha Vantage MCP 5-minute bars | Unverified | The free plan refuses `TIME_SERIES_INTRADAY` (premium endpoint). Code follows the published tool schema; tested only against a simulated server. |
 | Alpaca market-data adapter | Unverified | Never connected. |
 | Alpaca paper-broker adapter | Unverified / incomplete | Submit and positions written; fills are not wired into the paper engine. |
 | Databento or other providers | Not built | Implement `Provider` (3 methods). |
 | Bid/ask quotes, spreads, order book | Not built | Spreads are modelled constants; flagged on every review. |
-| Real historical evaluation | **Not done** | No real data was reachable. This is the largest gap in the deliverable. |
+| Real historical evaluation | **Not done** | Real *daily* bars are now reachable, but the engines need 5-minute bars, which no free source reachable from here provides. Still the largest gap. |
 
 ## Dashboard
 

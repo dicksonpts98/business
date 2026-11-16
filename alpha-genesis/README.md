@@ -5,8 +5,9 @@ discover, test, reject, promote and monitor intraday trading strategies without 
 with a dashboard that shows every stored experiment.
 
 > **Read this first.**
-> - This build has **never seen real market data**. The environment it was built in blocks every
->   market-data host and has no broker credentials, so all results come from a clearly labelled
+> - **No strategy here has been evaluated on real market data.** A live MCP connection to Alpha
+>   Vantage works and real daily bars and USD/CAD rates were fetched, but the free plan refuses the
+>   5-minute bars the engines need, so all research results come from a clearly labelled
 >   **synthetic** market. They demonstrate that the machinery works. They say nothing about whether any
 >   edge exists in real markets.
 > - **No profitable trading edge is claimed.** The synthetic market contains a deliberately planted

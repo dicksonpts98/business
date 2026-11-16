@@ -137,7 +137,8 @@ def test_csv_import_roundtrip_and_session_ingest(tmp_path):
     for d in src.days:
         out = ingest_session(m, fp, d)
         assert out["bars"] == 78 * 2
-    assert np.allclose(m.c, src.c) and np.allclose(m.v, src.v) and np.allclose(m.fx, src.fx)
+    assert np.allclose(m.c, src.c) and np.allclose(m.v, src.v)
+    assert np.isnan(m.fx[0]) and np.allclose(m.fx[1:], src.fx[:-1])      # each session uses the previous day's rate, never its own
 
 
 def test_missing_symbol_session_is_reported_not_fabricated(tmp_path):

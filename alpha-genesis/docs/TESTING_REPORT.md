@@ -63,10 +63,27 @@ re-evaluation in a third research cycle, and checks the audit chain at the end.
 
 Defects 1, 2, 3 and 6 are the ones that matter most: each would have produced over-optimistic research.
 
+## Addendum — MCP data integration
+
+`tests/test_mcp.py` adds 9 tests (123 in total): MCP handshake and session header over JSON and SSE,
+bearer-only credentials, typed errors for bad keys / plan limits / rate limits with back-off, request
+pacing, validated ingestion with correct Eastern→UTC mapping, a causal USD/CAD rate (the previous
+day's, never the session's own), caching, and that a plan refusal is reported rather than filled in.
+After this change the three affected suites were re-run: `test_mcp`, `test_data_integrity`,
+`test_integration` — 33 passed. The other five suites were last run in the 114-test full run above and
+do not touch the changed code.
+
+Live check (not a unit test): `fetch-real --daily` against the real server returned 5 files, 0
+failures, 5 calls.
+
+A defect fixed along the way: the CSV importer used a session's own daily USD/CAD rate for sizing during
+that session; it now uses the latest rate dated before the session.
+
 ## Not tested
 
 - Docker image build and `docker compose up` (no Docker daemon in the build environment).
 - `AlpacaProvider` and `AlpacaPaperBroker` against the real service (no credentials, host blocked).
+- Alpha Vantage 5-minute bars through MCP against the real service (free plan refuses them).
 - Windows/WSL2 and macOS (Linux only).
 - Any real market data. Parquet import shares the CSV code path after file reading but only CSV has a
   round-trip test; Parquet reading is exercised by the store itself.

@@ -66,6 +66,24 @@ from CSV/Parquet history first, then set `provider = "alpaca"` and export `ALPAC
 `fx_usdcad.csv` current. Treat the first sessions as an integration test and compare against a second
 source. Wiring the Alpaca *paper broker* into the paper engine is not done (see AUDIT.md).
 
+**Alpha Vantage MCP server — live connection verified, 5-minute bars need a paid plan.** The platform
+is itself an MCP client (`mcp_client.py`) of the official server at `https://mcp.alphavantage.co/mcp`.
+Get a free key at alphavantage.co/support/#api-key and export `ALPHAVANTAGE_API_KEY` (sent as a bearer
+header, never in the URL).
+
+```bash
+python -m alpha_genesis.cli fetch-real real_data --daily        # free plan: daily bars + USD/CAD
+python -m alpha_genesis.cli fetch-real real_data --months 14    # paid plan: 5-minute history, importable
+```
+
+What was observed with a free key: handshake, authentication, tool discovery, `TIME_SERIES_DAILY` and
+`FX_DAILY` work (25 calls/day, about 1/second); `TIME_SERIES_INTRADAY` is refused as a premium
+endpoint, in every parameter combination tried. So on the free plan you get a real `fx_usdcad.csv`
+(usable with any CSV import) and daily bars (not usable by the intraday engines). With a paid key,
+`fetch-real` writes per-symbol 5-minute CSVs; point `[data] provider = "csv"` at that folder to
+initialise, then set `provider = "alphavantage_mcp"` for new sessions. That intraday path is tested only
+against a simulated server.
+
 Credentials are read only from the environment or `.env`; they are never written to config, logs or
 the database.
 

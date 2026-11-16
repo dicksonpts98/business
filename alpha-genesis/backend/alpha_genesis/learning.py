@@ -16,7 +16,7 @@ from .dsl import StrategySpec, Trigger
 from .features import STATE_FEATURES, forward_labels
 from .market import Market
 from .paper import InjectedCrash, PaperEngine
-from .providers import AlpacaProvider, FileProvider, Provider, SimulatedFeed, ingest_session
+from .providers import AlpacaProvider, AlphaVantageMcpProvider, FileProvider, Provider, SimulatedFeed, ingest_session
 from .synthetic import generate
 
 STAGES = ["observe", "evolve", "tune", "validate", "skeptic", "finalize"]
@@ -32,6 +32,8 @@ def make_provider(ctx: Ctx) -> Provider:
         return FileProvider(d["path"], d.get("timezone"))
     if kind == "alpaca":
         return AlpacaProvider(ctx.cfg.secret("ALPACA_API_KEY"), ctx.cfg.secret("ALPACA_API_SECRET"), d.get("feed", "iex"))
+    if kind == "alphavantage_mcp":
+        return AlphaVantageMcpProvider(ctx.cfg.secret("ALPHAVANTAGE_API_KEY"))
     raise ValueError(f"unknown data provider {kind!r}")
 
 

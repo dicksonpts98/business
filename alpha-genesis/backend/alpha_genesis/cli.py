@@ -9,6 +9,9 @@
   backup     snapshot the database, bars and models
   restore P  restore a snapshot directory created by `backup` (server must be stopped)
   verify     verify dataset checksums, the audit chain and the active deployment artifact
+  fetch-real DIR [--months N] [--daily]
+             download real data through the Alpha Vantage MCP server into DIR (needs ALPHAVANTAGE_API_KEY).
+             Default: N months of 5-minute bars (paid Alpha Vantage plan). --daily: daily bars (free plan).
 """
 from __future__ import annotations
 import argparse, json, logging, shutil, sys, time
@@ -16,7 +19,9 @@ import argparse, json, logging, shutil, sys, time
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="alpha-genesis", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["serve", "init", "advance", "cycle", "ablation", "status", "backup", "restore", "verify"])
+    ap.add_argument("command", choices=["serve", "init", "advance", "cycle", "ablation", "status", "backup", "restore", "verify", "fetch-real"])
+    ap.add_argument("--months", type=int, default=12)
+    ap.add_argument("--daily", action="store_true")
     ap.add_argument("arg", nargs="?")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8000)
@@ -25,6 +30,14 @@ def main(argv=None):
     log = logging.getLogger("alpha_genesis")
     from .config import Config
     cfg = Config()
+    if a.command == "fetch-real":
+        from datetime import date
+        from .providers import AlphaVantageMcpProvider
+        t = date.today()
+        months = [f"{(t.year * 12 + t.month - 1 - k) // 12}-{(t.year * 12 + t.month - 1 - k) % 12 + 1:02d}" for k in range(a.months, 0, -1)]
+        rep = AlphaVantageMcpProvider(cfg.secret("ALPHAVANTAGE_API_KEY")).download(cfg.symbols, a.arg or "real_data", months, daily_only=a.daily)
+        print(json.dumps(rep, indent=1, default=str))
+        sys.exit(1 if rep["failed"] and not rep["saved"] else 0)
     if a.command == "restore":
         from pathlib import Path
         src = Path(a.arg)

@@ -101,7 +101,7 @@ class FileProvider(Provider):
             return None
         fx = pd.read_csv(p)
         fx["date"] = pd.to_datetime(fx["date"]).dt.date
-        fx = fx[fx["date"] <= day].sort_values("date")
+        fx = fx[fx["date"] < day].sort_values("date")       # a daily rate is only known after its own day ends
         if not len(fx):
             return None
         return float(fx["rate"].iloc[-1]), fx["date"].iloc[-1]
@@ -150,6 +150,95 @@ class AlpacaProvider(Provider):
         return df
     # Alpaca does not serve USD/CAD: fetch_fx stays None and the Risk Guardian blocks CAD sizing until an
     # FX source (fx_usdcad.csv or another provider) is configured.
+
+
+class AlphaVantageMcpProvider(Provider):
+    """Real market data through the official Alpha Vantage MCP server (https://mcp.alphavantage.co/mcp).
+
+    Verified live: MCP handshake, authentication, tool discovery, TIME_SERIES_DAILY and FX_DAILY.
+    NOT verified: TIME_SERIES_INTRADAY — a free API key is refused ("premium endpoint"), so the 5-minute
+    path below is written to the tool's published schema and exercised only against a simulated server."""
+    name, verified = "alphavantage-mcp", False
+    URL = "https://mcp.alphavantage.co/mcp"
+
+    def __init__(self, token: str | None, client=None):
+        from .mcp_client import McpClient
+        if client is None and not token:
+            raise RuntimeError("Alpha Vantage API key missing: set ALPHAVANTAGE_API_KEY (free key: https://www.alphavantage.co/support/#api-key)")
+        self.mcp = client or McpClient(self.URL, token)
+        self._months: dict[tuple[str, str], pd.DataFrame] = {}
+        self._fx: pd.DataFrame | None = None
+
+    @staticmethod
+    def _csv(text: str) -> pd.DataFrame:
+        import io
+        df = pd.read_csv(io.StringIO(text))
+        if "timestamp" not in df.columns or len(df) == 0:
+            raise quality.DataError(f"unexpected response from data server: {text[:120]!r}")
+        return df
+
+    def intraday_month(self, sym: str, month: str) -> pd.DataFrame:
+        """All regular-session 5-minute bars of one calendar month (YYYY-MM), UTC bar-open timestamps."""
+        if (sym, month) not in self._months:
+            df = self._csv(self.mcp.call_tool("TIME_SERIES_INTRADAY", {"symbol": sym, "interval": "5min", "month": month, "outputsize": "full",
+                                                                       "extended_hours": False, "adjusted": True, "datatype": "csv"}))
+            df = quality.normalize(df, sym, tz="America/New_York")      # Alpha Vantage intraday stamps are US/Eastern
+            self._months[(sym, month)] = df
+        return self._months[(sym, month)]
+
+    def daily(self, sym: str, full: bool = False) -> pd.DataFrame:
+        df = self._csv(self.mcp.call_tool("TIME_SERIES_DAILY", {"symbol": sym, "outputsize": "full" if full else "compact", "datatype": "csv"}))
+        return df.rename(columns={"timestamp": "date"}).sort_values("date").reset_index(drop=True)
+
+    def fx_daily(self) -> pd.DataFrame:
+        if self._fx is None:
+            df = self._csv(self.mcp.call_tool("FX_DAILY", {"from_symbol": "USD", "to_symbol": "CAD", "datatype": "csv"}))
+            df["date"] = pd.to_datetime(df["timestamp"]).dt.date
+            self._fx = df[["date", "close"]].rename(columns={"close": "rate"}).sort_values("date").reset_index(drop=True)
+        return self._fx
+
+    def fetch_session(self, day, symbols):
+        out = []
+        for sym in symbols:
+            df = self.intraday_month(sym, f"{day:%Y-%m}")
+            out.append(df[df["timestamp"].dt.tz_convert("America/New_York").dt.date == day])
+        return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
+
+    def fetch_fx(self, day):
+        fx = self.fx_daily()
+        fx = fx[fx["date"] < day]            # the rate known before the session opens
+        if not len(fx):
+            return None
+        return float(fx["rate"].iloc[-1]), fx["date"].iloc[-1]
+
+    def download(self, symbols: list[str], out_dir: Path, months: list[str], daily_only: bool = False) -> dict:
+        """Save real history as files the local-files provider can import. Returns what was and was not obtained."""
+        from .mcp_client import McpError
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        rep = {"server": self.mcp.server, "saved": [], "failed": [], "calls": 0}
+        try:
+            fx = self.fx_daily()
+            fx.to_csv(out_dir / "fx_usdcad.csv", index=False)
+            rep["saved"].append({"file": "fx_usdcad.csv", "rows": len(fx), "from": str(fx["date"].iloc[0]), "to": str(fx["date"].iloc[-1])})
+        except (McpError, quality.DataError) as e:
+            rep["failed"].append({"what": "USD/CAD", "error": str(e)})
+        for sym in symbols:
+            try:
+                if daily_only:
+                    df = self.daily(sym)
+                    (out_dir / "daily").mkdir(exist_ok=True)
+                    df.to_csv(out_dir / "daily" / f"{sym}.csv", index=False)
+                    rep["saved"].append({"file": f"daily/{sym}.csv", "rows": len(df), "from": str(df["date"].iloc[0]), "to": str(df["date"].iloc[-1])})
+                else:
+                    parts = [self.intraday_month(sym, mth) for mth in months]
+                    df = pd.concat(parts, ignore_index=True).drop_duplicates("timestamp").sort_values("timestamp")
+                    df.drop(columns="symbol").to_csv(out_dir / f"{sym}.csv", index=False)
+                    rep["saved"].append({"file": f"{sym}.csv", "rows": len(df), "from": str(df["timestamp"].iloc[0]), "to": str(df["timestamp"].iloc[-1])})
+            except (McpError, quality.DataError) as e:
+                rep["failed"].append({"what": f"{sym} {'daily' if daily_only else '5-minute'}", "error": str(e)})
+        rep["calls"], rep["server"] = self.mcp.calls, self.mcp.server
+        return rep
 
 
 def ingest_session(market: Market, provider: Provider, day: date, db=None) -> dict:
