@@ -248,7 +248,11 @@ def hypothesize(ctx: Ctx, obs: dict, g: Grammar, cycle_id: int) -> list[dict]:
                              "evidence": r, "hint": {"parent": ch["id"], "avoid_regime": r["regime"]}})
     done = {r["subject"] for r in ctx.db.q("SELECT subject FROM kb_lessons WHERE lesson LIKE 'hypothesis_rejected%' AND cycle_id IN (SELECT id FROM cycles WHERE epoch=?)", (ep.id,))}
     out = []
-    for h in hyps[:14]:
+    for i, h in enumerate(hyps[:14]):
+        if cycle_id is None:                      # dry run (ablation arms): same reasoning, nothing persisted
+            h["status"], h["id"] = "open", -(i + 1)
+            out.append(h)
+            continue
         h["status"] = "skipped_already_rejected_this_epoch" if h["key"] in done else "open"
         h["id"] = ctx.db.x("INSERT INTO hypotheses(cycle_id,family,kind,statement,evidence,status,created) VALUES(?,?,?,?,?,?,?)",
                            (cycle_id, h["family"], h["kind"], h["statement"], jd({"key": h["key"], **h["evidence"]}), h["status"], time.time()))

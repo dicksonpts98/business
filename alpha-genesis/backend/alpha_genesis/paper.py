@@ -65,7 +65,8 @@ class PaperEngine:
         if db.one("SELECT 1 FROM equity WHERE day=?", (day_s,)):
             return {"day": day_s, "skipped": "already processed"}
         prog = db.get_meta("paper_progress")
-        start_bar = prog["bar"] + 1 if prog and prog["day"] == day_s and not prog.get("done") else 0
+        resume = bool(prog and prog["day"] == day_s and not prog.get("done"))
+        start_bar = prog["bar"] + 1 if resume else 0
         dep = registry.active_deployment(db)
         champ = registry.champion(db)
         spec: StrategySpec | None = None
@@ -79,7 +80,7 @@ class PaperEngine:
         pats = spec.trigger.patterns if spec and spec.trigger.kind == "event" and not spec.trigger.invert else []
         fx, fx_asof = m.fx[d], m.fx_asof[d]
         eq0 = self.equity()
-        state = db.get_meta("paper_day_state") if start_bar else None
+        state = db.get_meta("paper_day_state") if resume else None
         st = state or {"realized": 0.0, "entries": 0, "rejects": 0, "interventions": 0}
         last_valid = {s: -1 for s in range(m.S)}
         for b in range(start_bar, B):
@@ -193,7 +194,8 @@ class PaperEngine:
             db.x("INSERT INTO equity(day,d,equity_cad,pnl_cad,strategy_id) VALUES(?,?,?,?,?)", (day_s, d, eq0 + st["realized"], st["realized"], sid))
             db.set_meta("paper_progress", {"day": day_s, "bar": B - 1, "done": True})
         # paper-vs-backtest discrepancy monitor
-        out = {"day": day_s, "strategy": sid, "pnl_cad": st["realized"], "entries": st["entries"], "rejects": st["rejects"], "reconciliation": diffs}
+        out = {"day": day_s, "strategy": sid, "pnl_cad": st["realized"], "entries": st["entries"], "rejects": st["rejects"],
+               "interventions": st["interventions"], "reconciliation": diffs}
         if spec is not None:
             bt = ctx.backtest(spec, d, d + 1, equity0=eq0)      # same starting equity: differences are real discrepancies
             diff = st["realized"] - float(bt.daily.sum())

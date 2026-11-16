@@ -348,6 +348,7 @@ def ablation(ctx: Ctx, seed: int = 5, pop: int = 40, gens: int = 4) -> dict:
     v0, v1 = ep.part("val")
     rng = np.random.default_rng(seed)
     none = StrategySpec(family="baseline", trigger=Trigger(kind="none"))
+    obs = darwin.observe(ctx)                     # every arm reasons from the same development-set observations
 
     def pick(g: darwin.Grammar | None, tune: int = 0) -> tuple[StrategySpec, dict]:
         if g is None:
@@ -355,7 +356,7 @@ def ablation(ctx: Ctx, seed: int = 5, pop: int = 40, gens: int = 4) -> dict:
             n_tr = len(cands)
         else:
             s = darwin.Search(ctx, g, None, seed, pop, gens, record=False)
-            p = s.seed_population([])
+            p = s.seed_population(darwin.hypothesize(ctx, obs, g, None))
             for gen in range(1, gens + 1):
                 p = s.step(p, gen)
             p = s.tune(p, tune)

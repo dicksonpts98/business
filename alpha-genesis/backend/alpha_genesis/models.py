@@ -63,7 +63,7 @@ def train(kind: str, m: Market, fs, train_end: int, model_dir: Path, db, epoch: 
     path.write_bytes(blob)
     from .db import jd
     db.x("INSERT INTO models(id,kind,version,epoch,train_end,path,sha,metrics,created) VALUES(?,?,?,?,?,?,?,?,?)",
-         (mid, kind, ver, epoch, train_end, str(path), hashlib.sha256(blob).hexdigest(), jd(metrics), time.time()))
+         (mid, kind, ver, epoch, train_end, f"models/{mid}.pkl", hashlib.sha256(blob).hexdigest(), jd(metrics), time.time()))
     return mid
 
 
@@ -71,7 +71,8 @@ def load(db, mid: str):
     row = db.one("SELECT * FROM models WHERE id=?", (mid,))
     if row is None:
         raise KeyError(mid)
-    blob = Path(row["path"]).read_bytes()
+    row["abs_path"] = str(Path(db.path).parent / row["path"])      # stored relative to the data directory: backups stay portable
+    blob = Path(row["abs_path"]).read_bytes()
     if hashlib.sha256(blob).hexdigest() != row["sha"]:
         raise IOError(f"model artifact {mid} does not match its recorded hash")
     return pickle.loads(blob), row

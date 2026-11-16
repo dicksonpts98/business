@@ -21,45 +21,80 @@ def _chk(name, status, detail, **data):
     return {"check": name, "status": status, "detail": detail, **data}
 
 
-def leak_probe(ctx: Ctx, spec: StrategySpec, cuts: int = 3, seed: int = 0) -> dict:
-    """Look-ahead test by construction: delete everything after a cut point, rebuild features, events and
-    scores from scratch, and require the strategy's signals up to the cut to be unchanged."""
+def _columns(spec: StrategySpec) -> list[str]:
+    t = spec.trigger
+    cols = ["_atr"] + [c.feat for c in spec.filters + spec.avoid]
+    if t.kind == "event":
+        cols += ["ev:" + p for p in t.patterns] + ["inv:" + p for p in t.patterns]
+    elif t.kind == "feature":
+        cols.append(t.feat)
+    elif t.kind == "model":
+        cols.append("ml:" + t.model_id)
+    return list(dict.fromkeys(cols))
+
+
+def leak_probe(ctx: Ctx, spec: StrategySpec, cuts: int = 24, seed: int = 0) -> dict:
+    """Look-ahead test by construction. At many random cut points (session d, bar b) the pipeline is run twice
+    on the same history — once with the rest of session d present, once with it deleted — and every input
+    column the strategy reads, and its signals, must agree up to bar b. A value that peeks even one bar
+    ahead differs at the boundary bar, which is why many cuts are used rather than a few."""
     m, ep = ctx.market, ctx.epoch
     rng = np.random.default_rng(seed)
-    mism, checked = 0, 0
-    full = ctx.signals(spec)
-    for _ in range(cuts):
-        d = int(rng.integers(ep.dev_end + 5, ep.val_end))
-        b = int(rng.integers(20, 70))
-        lo = 0 if spec.uses("dop_") else max(0, d - 330)
+    cols = _columns(spec)
+    cheap = [c for c in cols if not c.startswith("dop_")]
+    mism, checked, bad_cols = 0, 0, set()
+
+    def build(lo, d, b, with_dop=False):
         t = Market(m.symbols, m.days[lo:d + 1], m.kind)
         for f in FIELDS:
             a = getattr(m, f)[:, lo:d + 1].copy()
-            a[:, -1, b + 1:] = np.nan
+            if b is not None:
+                a[:, -1, b + 1:] = np.nan
             setattr(t, f, a)
         t.fx = m.fx[lo:d + 1].copy()
         fs = FeatureStore(t, ctx.cfg.proxy)
-        w = min(5, t.D)
-        liedetector.detect(t, fs, t.D - w)
-        if spec.uses("dop_"):
+        liedetector.detect(t, fs, t.D - 1)
+        if with_dop:
             from .doppelganger import Doppelganger
             st = ctx.engine("doppelganger") or {}
             Doppelganger(t, fs).write_columns(fs, st.get("method") or "knn_z", st.get("calib"))
         if spec.trigger.model_id:
-            for p in liedetector.PATTERN_IDS:      # scores need event columns for the scored window only
-                pass
-            fs._ml_done = {spec.trigger.model_id: t.D - w}
+            fs._ml_done = {spec.trigger.model_id: t.D - 1}
             models.write_scores(ctx.db, fs, spec.trigger.model_id, t.D)
-        sg = signals(spec, fs, t.sidx(ctx.cfg.proxy), 0)
-        a_ = sg[:, -w:]
-        b_ = full[:, d + 1 - w:d + 1].copy()
-        if ctx.min_day(spec) > 0:
-            b_ = signals(spec, ctx.fs, m.sidx(ctx.cfg.proxy), 0)[:, d + 1 - w:d + 1].copy()
-        a_[:, -1, b + 1:] = 0
-        b_[:, -1, b + 1:] = 0
-        mism += int((a_ != b_).sum())
-        checked += int(a_.size)
-    return {"mismatches": mism, "signals_compared": checked, "cuts": cuts}
+        return t, fs
+
+    def compare(fa, fb, b, names):
+        nonlocal mism, checked
+        for c in names:
+            x, y = fa[c][:, -1, :b + 1].astype(float), fb[c][:, -1, :b + 1].astype(float)
+            bad = ~np.isclose(x, y, equal_nan=True, atol=1e-9, rtol=1e-9)
+            checked += x.size
+            if bad.any():
+                mism += int(bad.sum())
+                bad_cols.add(c)
+
+    for _ in range(cuts):
+        d = int(rng.integers(ep.dev_end + 2, ep.val_end))
+        b = int(rng.integers(8, B - 1))
+        ta, fa = build(max(0, d - 25), d, None)
+        tb, fb = build(max(0, d - 25), d, b)
+        compare(fa, fb, b, cheap)
+        if not spec.uses("dop_"):
+            sa, sb = signals(spec, fa, ta.sidx(ctx.cfg.proxy)), signals(spec, fb, tb.sidx(ctx.cfg.proxy))
+            diff = sa[:, -1, :b + 1] != sb[:, -1, :b + 1]
+            checked += diff.size
+            if diff.any():
+                mism += int(diff.sum())
+                bad_cols.add("signals")
+    if spec.uses("dop_"):       # similarity columns need the full history: one (expensive) cut
+        d, b = int(rng.integers(ep.dev_end + 2, ep.val_end)), int(rng.integers(20, 70))
+        ta, fa = build(0, d, None, True)
+        tb, fb = build(0, d, b, True)
+        compare(fa, fb, b, [c for c in cols if c.startswith("dop_")])
+        diff = signals(spec, fa)[:, -1, :b + 1] != signals(spec, fb)[:, -1, :b + 1]
+        checked += diff.size
+        mism += int(diff.sum())
+    return {"mismatches": mism, "values_compared": checked, "cuts": cuts, "columns": cols, "leaking": sorted(bad_cols)}
 
 
 def matched_random(ctx: Ctx, spec: StrategySpec, d0: int, d1: int, n: int, seed: int = 0) -> dict:
@@ -139,7 +174,8 @@ def review(ctx: Ctx, sid: str, cycle: dict | None = None, seed: int = 0) -> dict
     # 2 look-ahead
     lp = leak_probe(ctx, spec, seed=seed)
     checks.append(_chk("lookahead_truncation", "pass" if lp["mismatches"] == 0 else "fail",
-                       f"{lp['mismatches']} signal differences after deleting the future at {lp['cuts']} cut points ({lp['signals_compared']} signals compared)", **lp))
+                       f"{lp['mismatches']} differences in the strategy's inputs and signals after deleting the future at {lp['cuts']} cut points ({lp['values_compared']} values compared)"
+                       + (f"; leaking: {', '.join(lp['leaking'])}" if lp["leaking"] else ""), **lp))
     late = [t for t in base.trades if t["entry_bar"] <= t["signal_bar"]]
     checks.append(_chk("execution_timing", "fail" if late else "pass", f"{len(late)} trades filled at or before their signal bar" if late else "every fill occurs after the signal bar closes"))
     if spec.trigger.model_id:

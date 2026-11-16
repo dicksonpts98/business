@@ -72,6 +72,7 @@ def run(spec: StrategySpec, m: Market, fs, cfg: Config, d0: int, d1: int, scenar
     open_pos: list[tuple[int, float]] = []  # (exit global bar, notional CAD)
     trades: list[dict] = []
     cur_day, day_entries, day_closed = -1, 0, []   # day_closed: (exit global bar, pnl CAD)
+    unsettled: list[tuple[int, float]] = []        # P&L of trades whose exit lies in the future of the current decision
     pats = spec.trigger.patterns if spec.trigger.kind == "event" and not spec.trigger.invert else []
     last_entry = ex["last_entry_bar"]
     for s, d, b in zip(ss, dd, bb):
@@ -94,6 +95,9 @@ def run(spec: StrategySpec, m: Market, fs, cfg: Config, d0: int, d1: int, scenar
         if sum(p for x, p in day_closed if x < ge) <= -rk.max_daily_loss_cad:
             continue
         open_pos = [(x, n) for x, n in open_pos if x >= ge]
+        if unsettled:                              # equity used for sizing only ever includes trades already closed
+            equity += sum(p for x, p in unsettled if x < ge)
+            unsettled = [(x, p) for x, p in unsettled if x >= ge]
         if len(open_pos) >= rk.max_positions:
             continue
         raw_e = o[eb]
@@ -120,7 +124,7 @@ def run(spec: StrategySpec, m: Market, fs, cfg: Config, d0: int, d1: int, scenar
         gross = side * (raw_x - raw_e) * qty
         net = side * (exit_px - entry) * qty - fee
         net_cad, gx = net * fx, d * B + xb
-        equity += net_cad
+        unsettled.append((gx, net_cad))
         daily[d - d0] += net_cad
         busy[s] = gx + 1
         open_pos.append((gx, qty * raw_e * fx))

@@ -137,6 +137,7 @@ def forward_labels(m: Market, horizon: int = 12) -> tuple[np.ndarray, np.ndarray
             fwd[:, :, b] = np.log(x / e)
             seg = m.l[:, :, b + 1:b + horizon + 1]
             mae[:, :, b] = np.log(np.where(np.isfinite(seg).any(axis=2), np.nanmin(np.where(np.isfinite(seg), seg, np.inf), axis=2), np.nan) / e)
+    mae = np.where(np.isfinite(fwd), mae, np.nan)      # a label exists only when its whole window does
     return fwd, mae
 
 
