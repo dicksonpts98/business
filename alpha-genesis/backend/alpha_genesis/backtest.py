@@ -126,7 +126,7 @@ def run(spec: StrategySpec, m: Market, fs, cfg: Config, d0: int, d1: int, scenar
         net_cad, gx = net * fx, d * B + xb
         unsettled.append((gx, net_cad))
         daily[d - d0] += net_cad
-        busy[s] = gx + 1
+        busy[s] = gx          # flat again at the close of the exit bar: a signal on that close may fill at the next open
         open_pos.append((gx, qty * raw_e * fx))
         day_closed.append((gx, net_cad))
         day_entries += 1

@@ -149,12 +149,21 @@ def champion_health(ctx: Ctx) -> dict | None:
     res = {"strategy": ch["id"], "paper_trades": int(len(rs)), "paper_mean_r": float(rs.mean()) if len(rs) else None,
            "reference_mean_r": float(vr.mean()) if len(vr) else None, "status": "healthy"}
     if len(rs) >= pol.quarantine_min_trades and len(vr) >= 10:
-        t, p2 = ss.ttest_ind(rs, vr, equal_var=False)
-        p = float(p2 / 2 if t < 0 else 1 - p2 / 2)
-        res["p_deteriorated"] = p
-        if p < pol.quarantine_p and rs.mean() < 0:
+        # Two looks, Bonferroni-corrected: the whole paper record, and only the most recent trades (so an edge
+        # that has just died is not hidden behind an earlier good stretch).
+        def one_sided(x):
+            t, p2 = ss.ttest_ind(x, vr, equal_var=False)
+            return float(p2 / 2 if t < 0 else 1 - p2 / 2)
+        recent = rs[-2 * pol.quarantine_min_trades:]
+        p_all, p_rec = one_sided(rs), one_sided(recent)
+        res.update(p_deteriorated=min(p_all, p_rec), p_all=p_all, p_recent=p_rec, recent_mean_r=float(recent.mean()), recent_trades=int(len(recent)))
+        hit = [(p_all, rs, "all")] if (p_all < pol.quarantine_p / 2 and rs.mean() < 0) else []
+        if p_rec < pol.quarantine_p / 2 and recent.mean() < 0:
+            hit.append((p_rec, recent, "most recent"))
+        if hit:
+            p, x, which = min(hit, key=lambda h: h[0])
             res["status"] = "quarantined"
-            restored = registry.rollback(db, ctx.cfg, f"paper expectancy {rs.mean():.2f}R over {len(rs)} trades is below reference {vr.mean():.2f}R (p={p:.3f})",
+            restored = registry.rollback(db, ctx.cfg, f"paper expectancy {x.mean():.2f}R over the {which} {len(x)} trades is below reference {vr.mean():.2f}R (p={p:.4f})",
                                          actor="health", to_status="QUARANTINED")
             res["restored"] = restored
             db.alert("critical", "health", f"Champion {ch['id']} quarantined for statistically supported deterioration; " + (f"rolled back to {restored}" if restored else "no healthy predecessor — NOT TRADING"))

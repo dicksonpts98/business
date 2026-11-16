@@ -167,7 +167,7 @@ def test_champion_is_quarantined_when_its_edge_disappears(tmp_path):
             break
     assert healthy_seen, "the champion was never observed trading healthily before the decay"
     assert q is not None, "deterioration was not detected"
-    assert q["paper_trades"] >= rt.cfg.policy.quarantine_min_trades and q["p_deteriorated"] < rt.cfg.policy.quarantine_p and q["paper_mean_r"] < 0
+    assert q["paper_trades"] >= rt.cfg.policy.quarantine_min_trades and q["p_deteriorated"] < rt.cfg.policy.quarantine_p / 2 and q["recent_mean_r"] < 0
     assert registry.get(db, champ["id"])["status"] == "QUARANTINED"
     assert db.one("SELECT COUNT(*) n FROM alerts WHERE source='health' AND level='critical'")["n"] == 1
     nxt = registry.champion(db)
