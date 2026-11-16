@@ -9,6 +9,7 @@ services:
       - ./config:/app/config:ro     # risk limits and validation policy are read-only to the application
     environment:
       AG_OPERATOR_TOKEN: ${AG_OPERATOR_TOKEN:-}
-      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
-      ALPACA_API_SECRET: ${ALPACA_API_SECRET:-}
+      APCA_API_KEY_ID: ${APCA_API_KEY_ID:-}
+      APCA_API_SECRET_KEY: ${APCA_API_SECRET_KEY:-}
+      ALPHAVANTAGE_API_KEY: ${ALPHAVANTAGE_API_KEY:-}
     restart: unless-stopped          # persistent operation: the worker resumes queued and interrupted jobs

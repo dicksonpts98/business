@@ -93,7 +93,7 @@ class AlpacaPaperBroker(Broker):
 
     def __init__(self, key: str | None, secret: str | None):
         if not key or not secret:
-            raise BrokerError("Alpaca paper credentials missing (ALPACA_API_KEY / ALPACA_API_SECRET)")
+            raise BrokerError("Alpaca paper credentials missing (APCA_API_KEY_ID / APCA_API_SECRET_KEY)")
         self.headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
 
     def submit(self, client_id, strategy_id, symbol, side, qty, kind, ts, meta=None):

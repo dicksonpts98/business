@@ -59,12 +59,28 @@ dropped (never repaired), a suspected unadjusted split quarantines that symbol-s
 is listed under Learning Monitor → data issues. Without `fx_usdcad.csv` there is no USD/CAD rate and
 the system will research but will not size or place any paper trade.
 
-**Alpaca — UNVERIFIED.** An adapter exists (`providers.AlpacaProvider`, `broker.AlpacaPaperBroker`) and
-was written from the public API documentation; it has never been connected. To try it: initialise
-from CSV/Parquet history first, then set `provider = "alpaca"` and export `ALPACA_API_KEY` and
-`ALPACA_API_SECRET` (or put them in a git-ignored `.env`). Alpaca does not serve USD/CAD, so keep an
-`fx_usdcad.csv` current. Treat the first sessions as an integration test and compare against a second
-source. Wiring the Alpaca *paper broker* into the paper engine is not done (see AUDIT.md).
+**Alpaca (5-minute history) — built and tested against a simulated server; live authentication not yet
+achieved.** Set `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` in the environment (or `.env`, or the systemd
+`EnvironmentFile`). Then:
+
+```bash
+python -m alpha_genesis.cli fetch-history --start 2023-01-03    # probe, then incremental download + USD/CAD
+```
+
+It first requests one known session as a probe, then downloads month by month into
+`data/raw/alpaca/<SYMBOL>/<YYYY-MM>.parquet` with a manifest (row counts, checksums, feed used,
+duplicates removed, splits, and any refusal message verbatim). Re-running fetches only what is missing
+and refreshes the current month. SIP is tried first; if the plan refuses it the refusal is recorded and
+IEX is used. USD/CAD comes from the Bank of Canada (official, free, verified live). To research on it,
+set `provider = "alpaca"` in `config/alpha.toml` and start with an empty data directory; set
+`replay_reserve_days` to hold back recent sessions and replay them one at a time.
+
+On this cloud build environment the two Alpaca headers must be saved as network secrets for
+`data.alpaca.markets`; a username/password secret is rejected by Alpaca with 401.
+
+To run permanently on your own machine: `deploy/alpha-genesis.service` (systemd) or
+`docker compose up -d`. Set the session feed cadence (Settings, or `sim_session_interval_seconds`) to
+e.g. 600: each tick is a no-op until a new completed session exists, then the full daily pipeline runs.
 
 **Alpha Vantage MCP server — live connection verified, 5-minute bars need a paid plan.** The platform
 is itself an MCP client (`mcp_client.py`) of the official server at `https://mcp.alphavantage.co/mcp`.

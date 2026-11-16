@@ -19,7 +19,8 @@ import argparse, json, logging, shutil, sys, time
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="alpha-genesis", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["serve", "init", "advance", "cycle", "ablation", "status", "backup", "restore", "verify", "fetch-real"])
+    ap.add_argument("command", choices=["serve", "init", "advance", "cycle", "ablation", "status", "backup", "restore", "verify", "fetch-real", "fetch-history"])
+    ap.add_argument("--start", default=None)
     ap.add_argument("--months", type=int, default=12)
     ap.add_argument("--daily", action="store_true")
     ap.add_argument("arg", nargs="?")
@@ -38,6 +39,27 @@ def main(argv=None):
         rep = AlphaVantageMcpProvider(cfg.secret("ALPHAVANTAGE_API_KEY")).download(cfg.symbols, a.arg or "real_data", months, daily_only=a.daily)
         print(json.dumps(rep, indent=1, default=str))
         sys.exit(1 if rep["failed"] and not rep["saved"] else 0)
+    if a.command == "fetch-history":
+        # Alpaca 5-minute history into data/raw/alpaca (incremental). Prints a verification summary; never prints credentials.
+        from datetime import date
+        from .core import Ctx
+        from . import learning
+        from .alpaca import AlpacaError
+        ctx0 = Ctx(cfg)
+        src = learning.alpaca_history(ctx0)
+        start = date.fromisoformat(a.start or cfg.alpha["data"].get("history_start", "2023-01-03"))
+        try:
+            probe = src.client.bars(cfg.symbols[0], *__import__("alpha_genesis.mcal", fromlist=["x"]).session(date(2024, 3, 12)), feed=src.feeds[0])
+            log.info("probe ok: %s 2024-03-12 feed=%s -> %d bars", cfg.symbols[0], src.feeds[0], len(probe))
+            rep = src.update(cfg.symbols, start, log=log.info)
+            if src.fx is not None:
+                rep["fx_rows_fetched"] = src.fx.update(start)
+            print(json.dumps(rep, indent=1, default=str))
+        except AlpacaError as e:
+            print(json.dumps({"status": "failed", "error_type": type(e).__name__, "error": str(e), "auth_mode": src.client.auth_mode,
+                              "restrictions": src.manifest["restrictions"]}, indent=1))
+            sys.exit(2)
+        return
     if a.command == "restore":
         from pathlib import Path
         src = Path(a.arg)

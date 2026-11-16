@@ -110,46 +110,23 @@ class FileProvider(Provider):
         return None  # a static import has no future sessions
 
 
-class AlpacaProvider(Provider):
-    """Alpaca Market Data v2 adapter. UNVERIFIED: written against the public API documentation and
-    never exercised against the live service (no credentials / network in the build environment)."""
-    name, verified = "alpaca", False
-    BASE = "https://data.alpaca.markets/v2"
+class ChainProvider(Provider):
+    """Replay a held-back reserve first, then hand over to a live provider when the reserve is exhausted."""
+    def __init__(self, first: Provider, then: Provider | None):
+        self.first, self.then = first, then
+        self.name, self.verified = (then.name if then else first.name), first.verified
 
-    def __init__(self, key: str | None, secret: str | None, feed: str = "iex"):
-        if not key or not secret:
-            raise RuntimeError("Alpaca credentials missing: set ALPACA_API_KEY and ALPACA_API_SECRET in the environment or .env")
-        self.headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
-        self.feed = feed
+    def _pick(self, day):
+        return self.first if day in getattr(self.first, "reserve").days else self.then
 
     def fetch_session(self, day, symbols):
-        import httpx
-        s = mcal.session(day)
-        if s is None:
-            return pd.DataFrame()
-        rows = []
-        for sym in symbols:
-            token = None
-            while True:
-                params = {"timeframe": "5Min", "start": s[0].isoformat(), "end": s[1].isoformat(), "limit": 1000,
-                          "adjustment": "split", "feed": self.feed}
-                if token:
-                    params["page_token"] = token
-                r = httpx.get(f"{self.BASE}/stocks/{sym}/bars", params=params, headers=self.headers, timeout=30)
-                r.raise_for_status()
-                js = r.json()
-                for b in js.get("bars") or []:
-                    rows.append({"timestamp": b["t"], "symbol": sym, "open": b["o"], "high": b["h"], "low": b["l"],
-                                 "close": b["c"], "volume": b["v"]})
-                token = js.get("next_page_token")
-                if not token:
-                    break
-        df = pd.DataFrame(rows)
-        if len(df):
-            df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-        return df
-    # Alpaca does not serve USD/CAD: fetch_fx stays None and the Risk Guardian blocks CAD sizing until an
-    # FX source (fx_usdcad.csv or another provider) is configured.
+        return self._pick(day).fetch_session(day, symbols)
+
+    def fetch_fx(self, day):
+        return self._pick(day).fetch_fx(day)
+
+    def next_session(self, after):
+        return self.first.next_session(after) or (self.then.next_session(after) if self.then else None)
 
 
 class AlphaVantageMcpProvider(Provider):

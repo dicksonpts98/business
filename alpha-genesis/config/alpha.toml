@@ -7,7 +7,12 @@ market_proxy = "SPY"
 bar_minutes = 5
 
 [data]
-provider = "synthetic"          # synthetic | csv | parquet | alpaca
+provider = "synthetic"          # synthetic | csv | parquet | alpaca | alphavantage_mcp
+# For real data set provider = "alpaca" and delete data/ (or use a fresh AG_DATA_DIR):
+history_start = "2023-01-03"    # alpaca: first session to download
+feeds = ["sip", "iex"]          # alpaca: tried in order; a refusal is recorded and the next feed is used
+fx_source = "bankofcanada"      # official daily USD/CAD, previous business day
+replay_reserve_days = 0         # hold back the last N real sessions and replay them one at a time (sequential test on real data)
 synthetic_days = 756
 synthetic_initial_days = 560    # remaining sessions are delivered one at a time by the simulated feed
 synthetic_seed = 7

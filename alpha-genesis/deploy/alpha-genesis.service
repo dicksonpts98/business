@@ -1,0 +1,22 @@
+# systemd unit: keeps ALPHA GENESIS researching and paper trading across reboots, with no AI assistant involved.
+#   sudo cp deploy/alpha-genesis.service /etc/systemd/system/ && sudo systemctl enable --now alpha-genesis
+#   journalctl -u alpha-genesis -f        (structured JSON logs)        sudo systemctl stop alpha-genesis
+[Unit]
+Description=ALPHA GENESIS research and paper-trading service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alphagenesis
+WorkingDirectory=/opt/alpha-genesis/backend
+# Credentials live in a root-owned 0600 file, never in the repository:
+#   APCA_API_KEY_ID=...   APCA_API_SECRET_KEY=...   AG_OPERATOR_TOKEN=...
+EnvironmentFile=/etc/alpha-genesis.env
+Environment=AG_DATA_DIR=/var/lib/alpha-genesis
+ExecStart=/usr/bin/python3 -W ignore -m alpha_genesis.cli serve --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

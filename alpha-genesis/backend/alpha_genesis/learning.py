@@ -5,7 +5,7 @@ Everything here runs as ordinary jobs (see jobs.py) against persisted state. No 
 involved at run time."""
 from __future__ import annotations
 import json, time
-from datetime import date
+from datetime import date, timedelta
 import numpy as np
 from scipy import stats as ss
 from . import arena, darwin, liedetector, models, registry, skeptic, stats
@@ -16,25 +16,38 @@ from .dsl import StrategySpec, Trigger
 from .features import STATE_FEATURES, forward_labels
 from .market import Market
 from .paper import InjectedCrash, PaperEngine
-from .providers import AlpacaProvider, AlphaVantageMcpProvider, FileProvider, Provider, SimulatedFeed, ingest_session
+from .providers import AlphaVantageMcpProvider, ChainProvider, FileProvider, Provider, SimulatedFeed, ingest_session
 from .synthetic import generate
 
 STAGES = ["observe", "evolve", "tune", "validate", "skeptic", "finalize"]
 
 
 # ------------------------------------------------------------------ bootstrap
+def alpaca_history(ctx: Ctx, transport=None):
+    from .alpaca import AlpacaClient, AlpacaHistory, BankOfCanadaFx
+    d = ctx.cfg.alpha["data"]
+    fx = BankOfCanadaFx(ctx.cfg.data_dir / "raw" / "fx_usdcad_bankofcanada.parquet") if d.get("fx_source", "bankofcanada") == "bankofcanada" else None
+    client = AlpacaClient(ctx.cfg.secret("APCA_API_KEY_ID"), ctx.cfg.secret("APCA_API_SECRET_KEY"), transport=transport)
+    return AlpacaHistory(ctx.cfg.data_dir / "raw" / "alpaca", client, tuple(d.get("feeds", ["sip", "iex"])), fx)
+
+
 def make_provider(ctx: Ctx) -> Provider:
     d = ctx.cfg.alpha["data"]
     kind = d["provider"]
+    live: Provider | None
     if kind == "synthetic":
         return SimulatedFeed(ctx.reserve_dir)
     if kind in ("csv", "parquet"):
-        return FileProvider(d["path"], d.get("timezone"))
-    if kind == "alpaca":
-        return AlpacaProvider(ctx.cfg.secret("ALPACA_API_KEY"), ctx.cfg.secret("ALPACA_API_SECRET"), d.get("feed", "iex"))
-    if kind == "alphavantage_mcp":
-        return AlphaVantageMcpProvider(ctx.cfg.secret("ALPHAVANTAGE_API_KEY"))
-    raise ValueError(f"unknown data provider {kind!r}")
+        live = FileProvider(d["path"], d.get("timezone"))
+    elif kind == "alpaca":
+        live = alpaca_history(ctx)
+    elif kind == "alphavantage_mcp":
+        live = AlphaVantageMcpProvider(ctx.cfg.secret("ALPHAVANTAGE_API_KEY"))
+    else:
+        raise ValueError(f"unknown data provider {kind!r}")
+    if (ctx.reserve_dir / "_manifest.json").exists():      # held-back real sessions are replayed before going live
+        return ChainProvider(SimulatedFeed(ctx.reserve_dir), live)
+    return live
 
 
 def bootstrap(ctx: Ctx, log=print) -> Ctx:
@@ -48,18 +61,39 @@ def bootstrap(ctx: Ctx, log=print) -> Ctx:
                         plant_vwap=d.get("synthetic_plant_vwap", 0.04), decay_start=d.get("synthetic_decay_start"))
         full.save(ctx.reserve_dir)
         m = full.truncated(d["synthetic_initial_days"])
-    elif d["provider"] in ("csv", "parquet"):
-        fp = FileProvider(d["path"], d.get("timezone"))
-        days = fp.all_days(ctx.cfg.symbols)
+    elif d["provider"] in ("csv", "parquet", "alpaca"):
+        from datetime import date as _date
+        if d["provider"] == "alpaca":
+            src = alpaca_history(ctx)
+            start = _date.fromisoformat(d.get("history_start", "2023-01-03"))
+            log(f"downloading Alpaca 5-minute history from {start} (incremental; cached months are reused)…")
+            rep = src.update(ctx.cfg.symbols, start, log=log)
+            if src.fx is not None:
+                src.fx.update(start - timedelta(days=10))
+            days = src.all_days(ctx.cfg.symbols, start, src.today)
+            ctx.db.set_meta("provider_report", rep)
+            prov = {"label": "HISTORICAL", "source": "Alpaca Market Data v2", "feeds": sorted({v for v in src.manifest["feed_used"].values()}),
+                    "adjustment": "split", "fx": "Bank of Canada FXUSDCAD (previous business day)", "restrictions": src.manifest["restrictions"][:5]}
+        else:
+            src = FileProvider(d["path"], d.get("timezone"))
+            days = src.all_days(ctx.cfg.symbols)
+            prov = {"label": "HISTORICAL", "source": str(d["path"]), "note": d.get("note", "user-supplied files")}
         if len(days) < 200:
             raise RuntimeError(f"need at least 200 sessions of history to initialise; found {len(days)}")
-        m = Market(ctx.cfg.symbols, [], "historical", {"label": "HISTORICAL", "source": str(d["path"]), "note": d.get("note", "user-supplied files")})
+        full = Market(ctx.cfg.symbols, [], "historical", prov)
         for day in days:
-            ingest_session(m, fp, day, ctx.db)
-        for i in fp.issues:
+            ingest_session(full, src, day, ctx.db)
+        for i in getattr(src, "issues", []):
             ctx.db.x("INSERT INTO data_issues(ts,symbol,day,kind,severity,detail) VALUES(?,?,?,?,?,?)", (time.time(), i["symbol"], i["day"], i["kind"], i["severity"], i["detail"]))
+        hold = int(d.get("replay_reserve_days", 0))
+        if hold > 0:      # controlled sequential test on REAL data: the last sessions arrive one at a time
+            full.provenance = {**prov, "replay_reserve_days": hold}
+            full.save(ctx.reserve_dir)
+            m = full.truncated(full.D - hold)
+        else:
+            m = full
     else:
-        raise RuntimeError("initial history must come from 'synthetic', 'csv' or 'parquet'; switch the provider to 'alpaca' afterwards for new sessions")
+        raise RuntimeError(f"cannot initialise from provider {d['provider']!r}: use 'synthetic', 'csv', 'parquet' or 'alpaca'")
     m.save(ctx.bars_dir, ctx.db)
     log("building features, detecting patterns, computing historical similarity…")
     ctx.load()
