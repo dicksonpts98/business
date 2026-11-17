@@ -368,6 +368,28 @@ def create_app(rt: Runtime) -> FastAPI:
         db.audit("operator", "broker.diagnostic", {"ok": res["ok"], "client_id": res.get("client_id"), "error": res.get("error")})
         return J(res)
 
+    @app.get("/api/experimental")
+    def experimental():
+        return J({**kind(), "segment": "EXPERIMENTAL live paper trading (not validated)", "loop_running": bool(rt.live_loop and rt.live_loop.is_alive()),
+                  "live_data_provider": ctx.cfg.alpha["data"]["provider"] == "alpaca", **rt.live.status()})
+
+    @app.post("/api/experimental/switch")
+    def experimental_switch(on: bool, confirm: str = "", x_operator_token: str | None = Header(None)):
+        operator(x_operator_token)
+        if on and confirm != "ENABLE-EXPERIMENTAL-PAPER":
+            raise HTTPException(400, "confirmation required: pass confirm=ENABLE-EXPERIMENTAL-PAPER")
+        try:
+            return J(rt.live.set_switch(on))
+        except PermissionError as e:
+            raise HTTPException(409, str(e))
+
+    @app.post("/api/experimental/flatten")
+    def experimental_flatten(x_operator_token: str | None = Header(None)):
+        operator(x_operator_token)
+        rt.live.flatten("operator")
+        db.audit("operator", "experimental.flatten", {})
+        return J({"positions": rt.live.status()["positions"]})
+
     # ------------------------------------------------------------------ learning monitor
     @app.get("/api/learning")
     def learning_monitor():

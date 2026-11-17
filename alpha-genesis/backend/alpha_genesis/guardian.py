@@ -108,6 +108,56 @@ class RiskGuardian:
                                                    "planned_risk_cad": round(qty * dist * fx, 2)})
         return True, "approved", qty
 
+    # -- LIVE experimental paper orders ---------------------------------------------
+    def check_live(self, req: dict) -> tuple[bool, str, float]:
+        """Pre-trade check for the live experimental mode. Its limits are separate from, and much tighter than,
+        the research account's. Returns (approved, reason, quantity). Long orders may be fractional; short
+        orders must be whole shares (fractional short sales are not supported)."""
+        import math
+        L = self.limits
+        def no(reason):
+            self.db.audit("guardian", "risk.reject_live", {"reason": reason, "client_id": req.get("client_id"), "symbol": req.get("symbol")})
+            return False, reason, 0.0
+        if not req.get("broker_is_paper"):
+            return no("broker is not a paper broker")
+        if not req.get("switch"):
+            return no("experimental trading switch is off")
+        h = self.halted()
+        if h:
+            return no(h)
+        if req.get("suspended"):
+            return no(f"suspended: {req['suspended']}")
+        sess = mcal.session(req["day"])
+        if sess is None or not (sess[0] <= req["now"] < sess[1]):
+            return no("market session closed")
+        if (sess[1] - req["now"]).total_seconds() <= L.no_entry_last_minutes * 60:
+            return no(f"inside the final {L.no_entry_last_minutes} minutes of the session")
+        fx = req.get("fx")
+        if fx is None or fx != fx or req.get("fx_asof") is None or (req["day"] - req["fx_asof"]).days > L.fx_stale_days:
+            return no("USD/CAD rate missing or stale: CAD limits cannot be computed")
+        if req["entries_today"] >= L.live_experimental_max_entries_per_day:
+            return no(f"daily entry limit reached ({L.live_experimental_max_entries_per_day})")
+        if req["day_pnl_cad"] <= -L.live_experimental_max_daily_loss_cad:
+            return no("experimental daily loss limit reached")
+        if any(p["symbol"] == req["symbol"] for p in req["positions"]):
+            return no("position already open in instrument")
+        if req["side"] < 0 and not self.cfg.instrument(req["symbol"]).get("shortable", True):
+            return no("instrument not shortable")
+        px, dist = req["px"], req["dist"]
+        if dist <= 0 or px <= 0:
+            return no("invalid price or stop distance")
+        cap_cad = L.live_experimental_max_position_cad
+        open_cad = sum(p["notional_cad"] for p in req["positions"])
+        room = min(cap_cad, L.live_experimental_leverage_x * (req.get("equity_usd") or 0) * fx - open_cad)      # no leverage against account equity
+        loss_room = max(0.0, L.live_experimental_max_daily_loss_cad + req["day_pnl_cad"]) / 2                   # one trade may plan at most half the remaining loss budget
+        qty = min(room / (px * fx), loss_room / (dist * fx))
+        qty = math.floor(qty * 1e4) / 1e4 if req["side"] > 0 else float(math.floor(qty))
+        if qty * px < 1.0:
+            return no("no size available within the experimental limits" + (" (short sales need whole shares)" if req["side"] < 0 else ""))
+        self.db.audit("guardian", "risk.approve_live", {"client_id": req["client_id"], "symbol": req["symbol"], "qty": qty, "notional_cad": round(qty * px * fx, 2),
+                                                        "planned_risk_cad": round(qty * dist * fx, 2)})
+        return True, "approved", qty
+
     # -- reconciliation ------------------------------------------------------------
     def reconcile(self, internal: dict[str, int], broker: dict[str, int]) -> list[dict]:
         diffs = [{"symbol": s, "internal": internal.get(s, 0), "broker": broker.get(s, 0)}

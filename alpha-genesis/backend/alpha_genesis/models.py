@@ -39,7 +39,11 @@ def train(kind: str, m: Market, fs, train_end: int, model_dir: Path, db, epoch: 
             from sklearn.pipeline import make_pipeline
             from sklearn.preprocessing import StandardScaler
             return make_pipeline(StandardScaler(), LogisticRegression(C=0.05, max_iter=300))
-        import lightgbm as lgb
+        try:
+            import lightgbm as lgb
+        except Exception:      # e.g. macOS without libomp: fall back to scikit-learn's gradient boosting (same role, no extra system library)
+            from sklearn.ensemble import HistGradientBoostingClassifier
+            return HistGradientBoostingClassifier(max_iter=120, max_leaf_nodes=8, learning_rate=0.03, min_samples_leaf=300, l2_regularization=5.0, random_state=seed)
         return lgb.LGBMClassifier(n_estimators=120, num_leaves=8, learning_rate=0.03, min_child_samples=300, subsample=0.8,
                                   subsample_freq=1, colsample_bytree=0.8, reg_lambda=5.0, random_state=seed, verbose=-1, n_jobs=2)
     chk = make().fit(np.clip(X[days < cut], -8, 8), yb[days < cut])
@@ -51,8 +55,10 @@ def train(kind: str, m: Market, fs, train_end: int, model_dir: Path, db, epoch: 
                "internal_brier": float(((p - yt) ** 2).mean()), "internal_brier_base": float(((base - yt) ** 2).mean()),
                "features": BASE_FEATURES + ["ev_net3"], "train_sessions": [0, train_end]}
     model = make().fit(np.clip(X, -8, 8), yb)
-    if kind == "lgbm":
+    if kind == "lgbm" and hasattr(model, "feature_importances_"):
         metrics["importance"] = dict(zip(metrics["features"], [int(v) for v in model.feature_importances_]))
+    elif kind == "lgbm":
+        metrics["importance"], metrics["backend"] = {}, "sklearn HistGradientBoosting (lightgbm unavailable)"
     else:
         metrics["importance"] = dict(zip(metrics["features"], [float(abs(v)) for v in model[-1].coef_[0]]))
     ver = (db.one("SELECT COALESCE(MAX(version),0) v FROM models WHERE kind=?", (kind,))["v"]) + 1

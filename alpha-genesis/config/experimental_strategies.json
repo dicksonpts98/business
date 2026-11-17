@@ -1,0 +1,73 @@
+[
+ {
+  "id": "EXP-MOMENTUM-ORB",
+  "source": "frozen benchmark BASE-MOMENTUM-ORB",
+  "note": "Best gross edge among benchmarks on real data (1.6 bps/round trip) but negative after modelled costs. Forward test only.",
+  "spec": {
+   "family": "baseline",
+   "trigger": {
+    "kind": "feature",
+    "feat": "or_pos",
+    "thr": 0.5
+   },
+   "exit": {
+    "max_hold": 24,
+    "stop_kind": "atr",
+    "stop_atr": 2.5
+   }
+  }
+ },
+ {
+  "id": "EXP-TREND-DOWNMKT",
+  "source": "v3 research trial (validation p = 0.094, NOT validated)",
+  "note": "Closest candidate from the v3 search; failed FDR control. Forward test only.",
+  "spec": {
+   "family": "feature",
+   "trigger": {
+    "kind": "feature",
+    "feat": "trend_z",
+    "thr": 1.6
+   },
+   "side": "long",
+   "filters": [
+    {
+     "feat": "pd_pos",
+     "op": ">",
+     "thr": -0.33
+    },
+    {
+     "feat": "mkt_trend",
+     "op": "<",
+     "thr": 0.0
+    }
+   ],
+   "exit": {
+    "max_hold": 77,
+    "stop_kind": "atr",
+    "stop_atr": 2.8,
+    "target_r": 1.5
+   }
+  }
+ },
+ {
+  "id": "EXP-FAILED-BREAKOUT",
+  "source": "frozen benchmark BASE-FAILED-BREAKOUT",
+  "note": "Fade failed opening-range and prior-day breaks. Negative after costs historically. Forward test only.",
+  "spec": {
+   "family": "baseline",
+   "trigger": {
+    "kind": "event",
+    "patterns": [
+     "ORB_FAIL_UP",
+     "ORB_FAIL_DOWN",
+     "PDH_FAIL",
+     "PDL_FAIL"
+    ]
+   },
+   "exit": {
+    "max_hold": 12,
+    "stop_kind": "invalidation"
+   }
+  }
+ }
+]

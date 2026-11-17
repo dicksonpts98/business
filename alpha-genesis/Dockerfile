@@ -1,3 +1,4 @@
+# Multi-architecture: builds natively on Apple Silicon (linux/arm64) and Intel (linux/amd64); every dependency ships wheels for both.
 # ALPHA GENESIS — single image: builds the dashboard, then serves API + UI + background worker.
 FROM node:22-slim AS ui
 WORKDIR /ui

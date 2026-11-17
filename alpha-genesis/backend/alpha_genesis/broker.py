@@ -112,7 +112,7 @@ class AlpacaPaperBroker(Broker):
     def submit(self, client_id, strategy_id, symbol, side, qty, kind, ts, meta=None):
         r = self._req("POST", "/orders", json={"symbol": symbol, "qty": str(qty), "side": "buy" if side > 0 else "sell", "type": "market",
                                                "time_in_force": "day", "client_order_id": client_id})
-        if r.status_code == 422 and "client_order_id" in r.text:        # duplicate submit: return the original order
+        if r.status_code in (403, 422) and "client_order_id" in r.text:        # duplicate submit: return the original order
             return self.order(client_id)
         if r.status_code in (401, 403):
             raise BrokerError(f"alpaca paper refused the request ({r.status_code})")
@@ -129,7 +129,8 @@ class AlpacaPaperBroker(Broker):
     @staticmethod
     def _norm(o: dict) -> dict:
         st = {"filled": "FILLED", "partially_filled": "PARTIALLY_FILLED", "canceled": "CANCELLED", "rejected": "REJECTED", "expired": "EXPIRED"}.get(o.get("status"), "SUBMITTED")
-        return {"client_id": o.get("client_order_id"), "broker_id": o.get("id"), "status": st, "filled_qty": int(float(o.get("filled_qty") or 0)),
+        fq = float(o.get("filled_qty") or 0)
+        return {"client_id": o.get("client_order_id"), "broker_id": o.get("id"), "status": st, "filled_qty": int(fq) if fq == int(fq) else fq,
                 "avg_px": float(o["filled_avg_price"]) if o.get("filled_avg_price") else None}
 
     def fill_market(self, client_id, px, bar_volume, ts):
@@ -176,4 +177,20 @@ class AlpacaPaperBroker(Broker):
         r = self._req("GET", "/positions")
         if r.status_code >= 400:
             raise BrokerError(f"alpaca paper positions failed ({r.status_code})")
-        return {p["symbol"]: int(float(p["qty"])) for p in r.json()}
+        return {p["symbol"]: (int(float(p["qty"])) if float(p["qty"]) == int(float(p["qty"])) else float(p["qty"])) for p in r.json()}
+
+    def position_details(self) -> list[dict]:
+        r = self._req("GET", "/positions")
+        if r.status_code >= 400:
+            raise BrokerError(f"alpaca paper positions failed ({r.status_code})")
+        return [{"symbol": p["symbol"], "qty": float(p["qty"]), "avg_entry_price": float(p.get("avg_entry_price") or 0), "current_price": float(p.get("current_price") or 0),
+                 "unrealized_pl": float(p.get("unrealized_pl") or 0), "market_value": float(p.get("market_value") or 0)} for p in r.json()]
+
+    def cancel(self, broker_id: str) -> bool:
+        return self._req("DELETE", f"/orders/{broker_id}").status_code in (200, 204)
+
+    def clock(self) -> dict:
+        r = self._req("GET", "/clock")
+        if r.status_code >= 400:
+            raise BrokerError(f"alpaca paper clock failed ({r.status_code})")
+        return r.json()

@@ -269,6 +269,17 @@ def hypothesize(ctx: Ctx, obs: dict, g: Grammar, cycle_id: int) -> list[dict]:
                         "statement": f"'{base.describe()[:70]}' earned {gross:.0f} CAD gross over {dv['trades']} trades but paid {dv['cost_cad']:.0f} in costs; "
                                      "a more selective, longer-held version may keep the gross edge and shed the cost.",
                         "evidence": {"gross_cad": gross, "cost_cad": dv["cost_cad"], "n": dv["trades"]}, "hint": {"cost_fix": json.loads(base.model_dump_json())}})
+    # Forward experimental results are evidence too: a strategy losing in live paper trading becomes a hypothesis to repair.
+    for r in ctx.db.q("SELECT strategy, COUNT(*) n, AVG(r_multiple) r, SUM(pnl_cad) pnl FROM live_trades GROUP BY strategy HAVING n>=10 AND r<0"):
+        try:
+            cfg_s = {x["id"]: x["spec"] for x in json.loads((ctx.cfg.config_dir / "experimental_strategies.json").read_text())}
+            base = StrategySpec.model_validate(cfg_s[r["strategy"]])
+        except Exception:
+            continue
+        if g.allows(base):
+            hyps.insert(0, {"family": "variant", "kind": "live_gap", "key": f"livegap:{r['strategy']}:{r['n'] // 10}",
+                            "statement": f"{r['strategy']} lost {-r['pnl']:.0f} CAD over {r['n']} live experimental paper trades (mean {r['r']:.2f}R); a more selective variant may do better.",
+                            "evidence": {"n": r["n"], "mean_r": r["r"], "pnl_cad": r["pnl"]}, "hint": {"cost_fix": json.loads(base.model_dump_json())}})
     done = {r["subject"] for r in ctx.db.q("SELECT subject FROM kb_lessons WHERE lesson LIKE 'hypothesis_rejected%' AND cycle_id IN (SELECT id FROM cycles WHERE epoch=?)", (ep.id,))}
     out = []
     for i, h in enumerate(hyps[:14]):

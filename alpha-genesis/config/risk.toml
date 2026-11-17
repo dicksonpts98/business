@@ -20,3 +20,11 @@ paper_mode = "validated"
 experimental_risk_fraction = 0.25
 experimental_max_entries_per_day = 5
 experimental_max_daily_loss_cad = 50.0
+
+# LIVE experimental paper trading (orders go to the Alpaca PAPER account during market hours).
+# Off until the operator turns the switch on in the dashboard. These limits apply only to that mode.
+live_experimental_max_position_cad = 500.0     # maximum notional per position
+live_experimental_max_entries_per_day = 2
+live_experimental_max_daily_loss_cad = 50.0     # realised + unrealised; new entries stop and positions are closed
+live_experimental_leverage_x = 1.0              # no leverage: total open notional never exceeds this x the notional cap x entries
+live_experimental_flatten_minutes_before_close = 10   # no overnight positions

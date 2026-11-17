@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import Experimental from "./Experimental";
 import { useApi, f, cad, pct, ago, post } from "../api";
 import { Panel, Tag, Lines, Pill, Stat, Meter, Btn, Loading, Empty, REG } from "../ui";
 
@@ -7,6 +8,10 @@ export default function Paper() {
   const [open, setOpen] = useState<number | null>(null);
   const { data: br, refresh: brRefresh } = useApi("/api/broker", 15000);
   const [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false);
+  const { data: ex, refresh: exRefresh } = useApi("/api/experimental", 8000);
+  const [arming, setArming] = useState(false);
+  const setSwitch = async (on: boolean) => { try { await post("/api/experimental/switch?on=" + on + (on ? "&confirm=ENABLE-EXPERIMENTAL-PAPER" : "")); } catch (e: any) { alert(e.message); } setArming(false); exRefresh(); };
+  const closeAll = async () => { try { await post("/api/experimental/flatten"); } catch (e: any) { alert(e.message); } exRefresh(); };
   const runDiag = async () => { setBusy(true); try { await post("/api/broker/diagnostic?confirm=PAPER-DIAGNOSTIC"); } catch (e: any) { alert(e.message); } setBusy(false); setConfirming(false); brRefresh(); };
   if (!d) return <Loading error={error} />;
   const L = d.limits, s = d.summary, eq = d.equity, last = d.sessions[0]?.payload;
@@ -48,6 +53,7 @@ export default function Paper() {
           </div>
         </div>) : <Empty>checking broker…</Empty>}
       </Panel>
+      <Experimental ex={ex} arming={arming} setArming={setArming} setSwitch={setSwitch} closeAll={closeAll} />
       <Panel className="col-span-12 xl:col-span-8" title="Equity and session P&L (CAD)" tag={<Tag kind={d.data_kind} seg="paper trading" />}>
         {eq.length > 1 ? <Lines height={220} zero={false} labels={eq.map((e: any) => e.day)} series={[{ name: "equity", data: eq.map((e: any) => e.equity_cad), bold: true }]} fmt={(v: number) => cad(v)} /> : <Empty>No paper sessions processed yet.</Empty>}
         {eq.length > 1 && <div className="flex items-end gap-px h-12 mt-1">{eq.slice(-150).map((e: any) => { const mx = Math.max(1, ...eq.map((x: any) => Math.abs(x.pnl_cad))); return <div key={e.day} title={`${e.day}: ${cad(e.pnl_cad, 2)} (${e.strategy_id || "not trading"})`} className="flex-1" style={{ height: `${Math.max(2, (Math.abs(e.pnl_cad) / mx) * 100)}%`, background: e.pnl_cad > 0 ? "#34d399" : e.pnl_cad < 0 ? "#f87171" : "#1c2636" }} />; })}</div>}

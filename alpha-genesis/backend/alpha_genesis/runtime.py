@@ -19,6 +19,12 @@ class Runtime:
                                               self.cfg.secret("APCA_PAPER_SECRET_KEY") or self.cfg.secret("APCA_API_SECRET_KEY"))
         if self.cfg.alpha.get("broker", {}).get("mirror") == "alpaca_paper":      # opt-in; paper endpoint only
             self.engine.mirror = self.alpaca_paper
+        from .alpaca import AlpacaClient
+        from .live import LiveExperimental, LiveLoop
+        d_ = self.cfg.alpha["data"]
+        self.live = LiveExperimental(self.ctx, AlpacaClient(self.cfg.secret("APCA_API_KEY_ID"), self.cfg.secret("APCA_API_SECRET_KEY")), self.alpaca_paper,
+                                     self.engine.guardian, feeds=tuple(d_.get("live_feeds", ["sip", "iex"])))
+        self.live_loop = LiveLoop(self.live) if d_["provider"] == "alpaca" else None      # live trading needs a live data source
         self.recovery = self.engine.recover()
         self.worker = jobs.Worker(self.ctx.db, {
             "session_close": self._session, "research_cycle": self._cycle, "ablation": lambda p: learning.ablation(self.ctx),
@@ -60,6 +66,10 @@ class Runtime:
 
     def start(self):
         self.worker.start()
+        if self.live_loop is not None:
+            self.live_loop.start()
 
     def stop(self):
         self.worker.stop_flag.set()
+        if self.live_loop is not None:
+            self.live_loop.stop_flag.set()

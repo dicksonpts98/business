@@ -135,7 +135,7 @@ class AlpacaHistory(Provider):
         self.root, self.client, self.feeds, self.fx = Path(root), client, feeds, fx
         self.root.mkdir(parents=True, exist_ok=True)
         self._today = today
-        self._mem: dict[tuple[str, str], pd.DataFrame] = {}
+        self._mem: dict[tuple[str, str], tuple] = {}
         mf = self.root / "manifest.json"
         self.manifest = json.loads(mf.read_text()) if mf.exists() else {"months": {}, "restrictions": [], "splits": [], "feed_used": {}}
 
@@ -172,8 +172,9 @@ class AlpacaHistory(Provider):
     def month(self, sym: str, month: str) -> pd.DataFrame:
         """Regular-session 5-minute bars of one month (UTC bar-open timestamps), from cache when complete."""
         key = (sym, month)
-        if key in self._mem:
-            return self._mem[key]
+        hit = self._mem.get(key)
+        if hit is not None and (hit[1] or time.time() - hit[2] < 300):     # an open (current) month is re-fetched after 5 minutes
+            return hit[0]
         p = self.root / sym / f"{month}.parquet"
         meta = self.manifest["months"].get(f"{sym}/{month}")
         complete = meta is not None and meta.get("complete")
@@ -200,7 +201,7 @@ class AlpacaHistory(Provider):
                 "complete": bool(self.today >= month_end + timedelta(days=1)), "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
             self._save_manifest()
         df = df.assign(symbol=sym)
-        self._mem[key] = df
+        self._mem[key] = (df, bool(self.manifest["months"].get(f"{sym}/{month}", {}).get("complete")), time.time())
         return df
 
     def update(self, symbols: list[str], start: date, end: date | None = None, log=lambda *_: None) -> dict:

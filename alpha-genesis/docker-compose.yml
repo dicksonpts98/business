@@ -9,6 +9,8 @@ services:
       - ./config:/app/config:ro     # risk limits and validation policy are read-only to the application
     environment:
       AG_OPERATOR_TOKEN: ${AG_OPERATOR_TOKEN:-}
+      AG_PROVIDER: ${AG_PROVIDER:-synthetic}          # set AG_PROVIDER=alpaca in .env once keys are present
+      AG_SESSION_INTERVAL: ${AG_SESSION_INTERVAL:-0}
       APCA_API_KEY_ID: ${APCA_API_KEY_ID:-}
       APCA_API_SECRET_KEY: ${APCA_API_SECRET_KEY:-}
       ALPHAVANTAGE_API_KEY: ${ALPHAVANTAGE_API_KEY:-}

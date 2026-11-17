@@ -55,6 +55,13 @@ CREATE TABLE IF NOT EXISTS jobs(id INTEGER PRIMARY KEY, kind TEXT, payload TEXT,
 CREATE UNIQUE INDEX IF NOT EXISTS ux_jobs_dedupe ON jobs(dedupe) WHERE status IN ('queued','running');
 CREATE TABLE IF NOT EXISTS schedules(name TEXT PRIMARY KEY, kind TEXT, interval_s REAL, next_run REAL, enabled INTEGER, last_run REAL);
 CREATE TABLE IF NOT EXISTS recovery_log(id INTEGER PRIMARY KEY, ts REAL, message TEXT);
+CREATE TABLE IF NOT EXISTS live_orders(client_id TEXT PRIMARY KEY, broker_id TEXT, strategy TEXT, symbol TEXT, side INTEGER, qty REAL, kind TEXT, status TEXT,
+  filled_qty REAL DEFAULT 0, avg_px REAL, day TEXT, bar INTEGER, signal_ts TEXT, submitted_ts TEXT, updated_ts TEXT, reason TEXT, meta TEXT);
+CREATE TABLE IF NOT EXISTS live_positions(symbol TEXT PRIMARY KEY, strategy TEXT, side INTEGER, qty REAL, entry_px REAL, entry_ts TEXT, stop_px REAL, target_px REAL,
+  exit_by_bar INTEGER, entry_bar INTEGER, day TEXT, fx REAL, entry_client_id TEXT, meta TEXT);
+CREATE TABLE IF NOT EXISTS live_trades(id INTEGER PRIMARY KEY, strategy TEXT, symbol TEXT, side INTEGER, qty REAL, day TEXT, entry_ts TEXT, exit_ts TEXT, signal_ts TEXT,
+  entry_px REAL, exit_px REAL, pnl_usd REAL, pnl_cad REAL, est_fees_usd REAL, r_multiple REAL, exit_reason TEXT, feed TEXT, meta TEXT);
+CREATE TABLE IF NOT EXISTS live_decisions(id INTEGER PRIMARY KEY, ts TEXT, day TEXT, bar INTEGER, strategy TEXT, symbol TEXT, decision TEXT, detail TEXT);
 CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY, ts REAL, actor TEXT, action TEXT, detail TEXT, prev_hash TEXT, hash TEXT);
 CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit_log BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit_log BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;
