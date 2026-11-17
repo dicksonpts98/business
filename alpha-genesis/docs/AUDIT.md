@@ -60,6 +60,17 @@ against the real thing. **Not built**: absent.
 | Release zip | Built and verified on Linux | See TESTING_REPORT.md. |
 | Alpaca rate-limit retry path | Verified live | 22 retries handled during the ten-symbol download. |
 
+## Live experimental trading and macOS (2026-11-17, later)
+
+| Item | Status | Notes |
+| --- | --- | --- |
+| Live experimental paper trading loop (real-time bars → signals → Guardian → Alpaca paper orders → fills → reconciliation → records) | Tested against simulated Alpaca APIs | 10 tests incl. limits, restart without duplicate orders, stale data, broker outage, position mismatch, kill switch. **Never run against the real paper account.** |
+| Real-time feed selection (SIP, else IEX) and volume-dependent strategy exclusion | Tested (simulated) | The actual entitlement of the user's plan is unverified. |
+| Alpaca paper account from the build environment | **Blocked** | Saved keys rejected with HTTP 401 on both Alpaca hosts at release time. |
+| App-managed stops for fractional positions | Implemented; known weakness | No broker-side stop: a stopped app leaves an open position unprotected until restart. |
+| Learning from experimental trades | Tested | Daily review metric, knowledge-base lessons, and a research hypothesis for strategies losing over ≥ 10 live trades. |
+| macOS start/stop/auto-start scripts, launchd agent, Apple Silicon | **Unverified on macOS** | Syntax-checked and run on Linux only. LightGBM made optional so no Homebrew library is required. |
+
 ## Dashboard
 
 All ten screens load real stored results and label their data kind and segment (browser smoke check).

@@ -17,7 +17,7 @@ with a dashboard that shows every stored experiment.
 
 ## Quick start
 
-**From the release zip:** Windows — double-click `start.bat`; Linux/macOS/WSL — `./start.sh`. Then open
+**macOS:** see [INSTALL-macOS.md](INSTALL-macOS.md) (`start-macos.command`). **Windows:** double-click `start.bat`. **Linux/WSL:** `./start.sh`. Then open
 http://127.0.0.1:8000. The dashboard is pre-built; only Python 3.11+ is needed.
 
 **From source:**

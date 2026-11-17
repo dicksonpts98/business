@@ -115,13 +115,37 @@ real-data run reports the Alpaca paper account as unreachable and refuses a diag
 The release zip was extracted to an empty directory and the application was initialised and served from
 the extracted files (Linux).
 
+## Addendum — live experimental trading and macOS release (2026-11-17)
+
+```bash
+cd backend && python -m pytest tests -q -p no:cacheprovider      # 153 passed in 653.24s, 0 failed
+./scripts/package.sh macOS                                         # release/ALPHA-GENESIS-macOS.zip
+```
+
+`tests/test_live.py` (10 tests, simulated Alpaca data + paper APIs, controlled clock): switch off by default
+and locked until a passed diagnostic and an explicit confirmation; a full session where every limit holds
+(≤ 2 entries, ≤ CAD 500 notional, whole-share shorts, flat before the close, one entry and one exit per
+trade, only the two permitted hosts contacted); restart mid-session with no duplicate orders; suspension
+and recovery on stale data, broker outage and position mismatch; kill switch; the Guardian's live sizing
+rules; exclusion of volume-, similarity- and model-dependent strategies; and a losing experimental
+strategy becoming a research hypothesis. A defect found by these tests: the error counter was reset before
+reconciliation, so a broker outage never triggered suspension — fixed.
+
+The macOS zip was extracted on **Linux** and `start-macos.command` / `stop-macos.command` were run there:
+virtual-environment creation, dependency install, `.env` creation with mode 600, background start,
+health check, dashboard served, clean stop. **Nothing was executed on macOS.**
+
+Live checks at release time: both Alpaca hosts returned HTTP 401 for the keys saved in the build
+environment, so the real paper account, real-time entitlements and a real order round trip are unverified.
+
 ## Not tested
 
 - Docker image build and `docker compose up` (no Docker daemon in the build environment).
 - The Alpaca paper-broker mirror against the real paper API (host not reachable from the build environment).
 - Alpaca's rate-limit, retry and feed-fallback paths against the real service (never triggered).
 - Alpha Vantage 5-minute bars through MCP against the real service (free plan refuses them).
-- Windows/WSL2 and macOS (Linux only), including `start.bat` and the scheduled-task installer.
+- Windows/WSL2 and macOS (Linux only), including `start.bat`, the scheduled-task installer, `start-macos.command` on a Mac, launchd auto-start and Apple Silicon.
+- Live experimental trading against the real Alpaca paper account and real-time feed.
 - The Alpaca paper account, diagnostic order and order mirror against the real paper API.
 - The regulatory fee rates against a published schedule.
 - Any real market data. Parquet import shares the CSV code path after file reading but only CSV has a
