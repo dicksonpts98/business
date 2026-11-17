@@ -149,7 +149,43 @@ repair is listed in the recovery log.
   loopback binding.
 - **Backups**: Settings → Create backup, or `cli backup`. Restore with `cli restore`.
 
-## 7. Before any thought of real money
+## 7. Paper-trading modes, the Alpaca paper account, and Windows
+
+**Two modes**, chosen by the operator in `config/risk.toml` (`paper_mode`):
+
+| Mode | What trades | Limits |
+| --- | --- | --- |
+| `validated` (default) | only a promoted champion | full Risk Guardian limits |
+| `experimental` | with no champion, the best Skeptic-approved strategy still in its shadow period | reduced: 25% risk per trade, ≤ 5 entries/day, ≤ CAD 50 daily loss |
+
+In both modes nothing trades unless a strategy has passed the Research Skeptic. Orders are never forced.
+
+**Alpaca paper account.** The app talks to `https://paper-api.alpaca.markets` only (the URL is fixed in
+code). Provide the paper account's key pair as `APCA_PAPER_KEY_ID` / `APCA_PAPER_SECRET_KEY` (or reuse
+`APCA_API_KEY_ID` / `APCA_API_SECRET_KEY`) in `.env`. Then Paper Trading → *Alpaca paper account* shows
+account status, positions, recent orders and whether the broker's positions match the internal book.
+*Run diagnostic paper order…* asks for confirmation, then sends one buy-1-share limit order at $1.00
+(cannot fill), reads it back and cancels it. To mirror the app's approved paper orders to Alpaca on live
+sessions, add to `config/alpha.toml`:
+
+```toml
+[broker]
+mirror = "alpaca_paper"
+```
+
+Status: tested against a simulated Alpaca paper API. Not verified against the real one from the build
+environment (the host was not reachable there).
+
+**Windows.** Install Python 3.11+ (tick "Add to PATH"), unzip the release, double-click `start.bat`, open
+http://127.0.0.1:8000. Put credentials in a `.env` file next to `start.bat` (copy `.env.example`). To keep
+it running across logons: `powershell -ExecutionPolicy Bypass -File install-windows-task.ps1`.
+These scripts were written for Windows but have not been run on a Windows machine.
+
+**Fees.** `[execution] fee_model = "alpaca"` models commission-free trading plus regulatory fees; the rates
+under `[fees.alpaca]` were not checked against a published schedule — confirm them and set
+`verified = true`. `fee_model = "legacy"` restores the pre-v3 per-share commission for comparison.
+
+## 8. Before any thought of real money
 
 Not supported, and not a configuration change. It would need, at minimum: real quote data to replace
 modelled spreads, months of forward paper results on real data, a verified broker integration with
