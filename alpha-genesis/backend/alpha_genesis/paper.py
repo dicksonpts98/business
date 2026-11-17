@@ -27,6 +27,22 @@ class PaperEngine:
         self.broker = broker or PaperBroker(self.db, ex["commission_per_share_usd"], ex["commission_min_usd"], ex["participation_cap"])
         self.guardian = RiskGuardian(self.cfg, self.db)
         self.crash_at: int | None = None     # failure injection: raise after committing this bar
+        self.mirror: Broker | None = None    # optional external PAPER broker that mirrors orders on live sessions only
+        self.today = lambda: __import__("datetime").datetime.now(mcal.NY).date()
+
+    def _mirror(self, cid: str, sid: str, sym: str, side: int, qty: int, day, ts: str):
+        """Mirror an already risk-approved paper order to an external paper broker. Never on replayed (past)
+        sessions; a mirror failure is logged and alerted but cannot affect the internal paper account."""
+        if self.mirror is None or day != self.today():
+            return
+        if not self.mirror.is_paper:
+            raise RuntimeError("mirror broker is not a paper broker")
+        try:
+            o = self.mirror.submit(cid, sid, sym, side, qty, "mirror", ts)
+            self.db.audit("paper", "mirror.submitted", {"client_id": cid, "status": o.get("status"), "broker": self.mirror.name})
+        except Exception as e:
+            self.db.audit("paper", "mirror.failed", {"client_id": cid, "error": str(e)[:160]})
+            self.db.alert("warning", "broker", f"Mirror broker {self.mirror.name} failed for {cid}: {str(e)[:120]}")
 
     # -- account state -----------------------------------------------------------
     def equity(self) -> float:
@@ -178,6 +194,7 @@ class PaperEngine:
                             st["interventions"] += 1
                         else:
                             st["entries"] += 1
+                            self._mirror(cid, sid, sym, side, qty, day, now.isoformat())
                 db.set_meta("paper_progress", {"day": day_s, "bar": b, "done": False})
                 db.set_meta("paper_day_state", st)
             if self.crash_at is not None and b == self.crash_at:
@@ -191,6 +208,11 @@ class PaperEngine:
                 ok = np.where(np.isfinite(m.c[s, d]))[0]
                 st["realized"] += self._close(p, d, int(ok[-1]) if len(ok) else B - 1, float(m.c[s, d, ok[-1]]) if len(ok) else p["entry_px"], "eod_forced", mcal.bar_open_utc(day, B))
             diffs = self.guardian.reconcile({p["symbol"]: p["side"] * p["qty"] for p in self._positions()}, self.broker.positions())
+            if self.mirror is not None and day == self.today():      # the external paper account must also be flat
+                try:
+                    diffs += self.guardian.reconcile({}, {k: v for k, v in self.mirror.positions().items() if k in m.symbols})
+                except Exception as e:
+                    db.alert("warning", "broker", f"Could not reconcile with {self.mirror.name}: {str(e)[:120]}")
             db.x("INSERT INTO equity(day,d,equity_cad,pnl_cad,strategy_id) VALUES(?,?,?,?,?)", (day_s, d, eq0 + st["realized"], st["realized"], sid))
             db.set_meta("paper_progress", {"day": day_s, "bar": B - 1, "done": True})
         # paper-vs-backtest discrepancy monitor
@@ -214,6 +236,7 @@ class PaperEngine:
         cid = f"{p['strategy_id']}:{p['symbol']}:{day_s}:{p['entry_bar']}:exit"
         self.broker.submit(cid, p["strategy_id"], p["symbol"], -side, p["qty"], "exit", now.isoformat(), {"reason": reason, "day": day_s})
         f = self.broker.fill_market(cid, float(px), 1e15, now.isoformat())   # exits are never size-capped: risk must come off
+        self._mirror(cid, p["strategy_id"], p["symbol"], -side, p["qty"], m.days[d], now.isoformat())
         meta = json.loads(p["meta"])
         fee = p["cost_usd"] + f.get("commission_usd", 0.0)
         gross = side * (raw_x - meta["raw_entry"]) * p["qty"]

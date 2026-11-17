@@ -269,8 +269,11 @@ class BankOfCanadaFx:
     def update(self, start: date, end: date | None = None) -> int:
         have = self.df["date"].max() if len(self.df) else None
         frm = max(start, have - timedelta(days=5)) if have is not None and (not len(self.df) or self.df["date"].min() <= start + timedelta(days=7)) else start
-        r = httpx.Client(transport=self.transport, timeout=60, headers={"User-Agent": "alpha-genesis/0.1"}).get(
-            self.URL, params={"start_date": frm.isoformat(), **({"end_date": end.isoformat()} if end else {})})
+        try:
+            r = httpx.Client(transport=self.transport, timeout=60, headers={"User-Agent": "alpha-genesis/0.1"}).get(
+                self.URL, params={"start_date": frm.isoformat(), **({"end_date": end.isoformat()} if end else {})})
+        except httpx.HTTPError as e:
+            raise quality.DataError(f"Bank of Canada rates unreachable ({type(e).__name__}); cached rates end {have}") from e
         if r.status_code != 200:
             raise quality.DataError(f"Bank of Canada rates request failed: HTTP {r.status_code}")
         obs = [(date.fromisoformat(o["d"]), float(o["FXUSDCAD"]["v"])) for o in r.json().get("observations", []) if o.get("FXUSDCAD", {}).get("v")]
@@ -282,6 +285,14 @@ class BankOfCanadaFx:
         self.cache.parent.mkdir(parents=True, exist_ok=True)
         self.df.to_parquet(self.cache, index=False)
         return len(new)
+
+    def try_update(self, start: date, log=lambda *_: None) -> int:
+        """Refresh if possible; on failure keep the cache. Staleness is then enforced by the Risk Guardian, not hidden."""
+        try:
+            return self.update(start)
+        except quality.DataError as e:
+            log(f"fx: {e}")
+            return 0
 
     def rate_before(self, day: date):
         d = self.df[self.df["date"] < day]

@@ -130,3 +130,78 @@ def test_no_champion_means_no_orders(world):
     out = world.engine.run_session(d)
     assert out["strategy"] is None and out["pnl_cad"] == 0.0
     assert world.ctx.db.one("SELECT COUNT(*) n FROM orders")["n"] == before
+
+
+# ---------------------------------------------------------------- external paper-broker mirror (simulated Alpaca paper API)
+class FakeAlpacaPaper:
+    def __init__(self, stuck=None):
+        self.orders, self.stuck, self.urls = {}, stuck, []
+
+    def __call__(self, req):
+        import httpx, json as _j
+        self.urls.append(str(req.url))
+        assert req.url.host == "paper-api.alpaca.markets"
+        if req.url.path.endswith("/orders") and req.method == "POST":
+            b = _j.loads(req.content)
+            if b["client_order_id"] in self.orders:
+                return httpx.Response(422, json={"message": "client_order_id must be unique"})
+            self.orders[b["client_order_id"]] = {"id": "x" + str(len(self.orders)), "client_order_id": b["client_order_id"], "status": "filled",
+                                                 "filled_qty": b["qty"], "filled_avg_price": "100.0", "symbol": b["symbol"], "side": b["side"]}
+            return httpx.Response(200, json=self.orders[b["client_order_id"]])
+        if "by_client_order_id" in req.url.path:
+            return httpx.Response(200, json=self.orders[req.url.params["client_order_id"]])
+        if req.url.path.endswith("/positions"):
+            return httpx.Response(200, json=[{"symbol": self.stuck, "qty": "7"}] if self.stuck else [])
+        return httpx.Response(404)
+
+
+def _mirror(world, **kw):
+    import httpx
+    from alpha_genesis.broker import AlpacaPaperBroker
+    srv = FakeAlpacaPaper(**kw)
+    world.engine.mirror = AlpacaPaperBroker("k", "s", transport=httpx.MockTransport(srv))
+    return srv
+
+
+def test_mirror_is_silent_on_replayed_sessions(world):
+    srv = _mirror(world)
+    d = busy_session(world, 3)
+    out = world.engine.run_session(d)                       # a past session: nothing may be sent to any external broker
+    assert out["entries"] >= 1 and srv.urls == []
+
+
+def test_mirror_copies_approved_orders_on_a_live_session_idempotently(world):
+    srv = _mirror(world)
+    d = busy_session(world, 3)
+    world.engine.today = lambda: world.ctx.market.days[d]   # treat this session as "today"
+    out = world.engine.run_session(d)
+    internal = {o["client_id"] for o in world.ctx.db.q("SELECT client_id FROM orders WHERE status IN ('FILLED','PARTIAL_CANCELLED')")
+                if world.ctx.market.days[d].isoformat() in o["client_id"]}
+    assert set(srv.orders) == internal and len(internal) >= 2 and out["reconciliation"] == []
+    assert world.engine.mirror.submit(next(iter(internal)), "s", "SPY", 1, 1, "mirror", "t")["status"] == "FILLED" and len(srv.orders) == len(internal)
+    assert world.ctx.db.one("SELECT COUNT(*) n FROM audit_log WHERE action='mirror.submitted'")["n"] == len(internal)
+    assert world.engine.mirror.is_paper and "paper-api" in world.engine.mirror.BASE
+
+
+def test_mirror_position_mismatch_halts_new_entries(world):
+    _mirror(world, stuck="TSLA")
+    d = busy_session(world, 3)
+    world.engine.today = lambda: world.ctx.market.days[d]
+    out = world.engine.run_session(d)
+    assert out["reconciliation"] == [{"symbol": "TSLA", "internal": 0, "broker": 7}]
+    assert "reconciliation halt" in world.engine.guardian.halted()
+
+
+def test_mirror_outage_never_touches_the_internal_account(world):
+    import httpx
+    from alpha_genesis.broker import AlpacaPaperBroker
+    def down(req):
+        raise httpx.ConnectError("down")
+    world.engine.mirror = AlpacaPaperBroker("k", "s", transport=httpx.MockTransport(down))
+    d = busy_session(world, 3)
+    world.engine.today = lambda: world.ctx.market.days[d]
+    eq0 = world.engine.equity()
+    out = world.engine.run_session(d)
+    bt = world.ctx.backtest(__import__("alpha_genesis").registry.champion(world.ctx.db)["spec_obj"], d, d + 1, equity0=eq0)
+    assert out["pnl_cad"] == pytest.approx(float(bt.daily.sum()), abs=0.01)
+    assert world.ctx.db.one("SELECT COUNT(*) n FROM audit_log WHERE action='mirror.failed'")["n"] >= 2

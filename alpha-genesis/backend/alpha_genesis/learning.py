@@ -69,7 +69,7 @@ def bootstrap(ctx: Ctx, log=print) -> Ctx:
             log(f"downloading Alpaca 5-minute history from {start} (incremental; cached months are reused)…")
             rep = src.update(ctx.cfg.symbols, start, log=log)
             if src.fx is not None:
-                src.fx.update(start - timedelta(days=10))
+                src.fx.try_update(start - timedelta(days=10), log)
             days = src.all_days(ctx.cfg.symbols, start, src.today)
             ctx.db.set_meta("provider_report", rep)
             prov = {"label": "HISTORICAL", "source": "Alpaca Market Data v2", "feeds": sorted({v for v in src.manifest["feed_used"].values()}),

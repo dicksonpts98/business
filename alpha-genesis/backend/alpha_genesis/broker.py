@@ -86,35 +86,56 @@ class PaperBroker(Broker):
 
 
 class AlpacaPaperBroker(Broker):
-    """Alpaca PAPER trading adapter. UNVERIFIED — never exercised against the live service. The base URL is
-    fixed to the paper endpoint; there is deliberately no parameter that could point it at live trading."""
+    """Alpaca PAPER trading adapter, used as a mirror of the internal paper engine on live sessions.
+
+    The base URL is the paper endpoint and is not configurable: there is deliberately no way to point this
+    class at live trading. Tested against a simulated server; NOT yet verified against the real service."""
     is_paper, name = True, "alpaca-paper"
     BASE = "https://paper-api.alpaca.markets/v2"
 
-    def __init__(self, key: str | None, secret: str | None):
-        if not key or not secret:
-            raise BrokerError("Alpaca paper credentials missing (APCA_API_KEY_ID / APCA_API_SECRET_KEY)")
-        self.headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
+    def __init__(self, key: str | None = None, secret: str | None = None, transport=None):
+        import httpx
+        headers = {"Accept": "application/json", "User-Agent": "alpha-genesis/0.1"}
+        if key and secret:
+            headers["APCA-API-KEY-ID"], headers["APCA-API-SECRET-KEY"] = key, secret
+        self.http = httpx.Client(base_url=self.BASE, headers=headers, timeout=20, transport=transport)
+        assert "paper-api" in str(self.http.base_url)
 
-    def submit(self, client_id, strategy_id, symbol, side, qty, kind, ts, meta=None):
+    def _req(self, method, path, **kw):
         import httpx
         try:
-            r = httpx.post(f"{self.BASE}/orders", headers=self.headers, timeout=15, json={
-                "symbol": symbol, "qty": str(qty), "side": "buy" if side > 0 else "sell", "type": "market",
-                "time_in_force": "day", "client_order_id": client_id})
+            return self.http.request(method, path, **kw)
         except httpx.HTTPError as e:
-            raise BrokerDisconnected(str(e)) from e
-        if r.status_code == 422 and "client_order_id" in r.text:      # duplicate: fetch the original
-            r = httpx.get(f"{self.BASE}/orders:by_client_order_id", headers=self.headers, params={"client_order_id": client_id}, timeout=15)
+            raise BrokerDisconnected(f"alpaca paper: {type(e).__name__}") from e
+
+    def submit(self, client_id, strategy_id, symbol, side, qty, kind, ts, meta=None):
+        r = self._req("POST", "/orders", json={"symbol": symbol, "qty": str(qty), "side": "buy" if side > 0 else "sell", "type": "market",
+                                               "time_in_force": "day", "client_order_id": client_id})
+        if r.status_code == 422 and "client_order_id" in r.text:        # duplicate submit: return the original order
+            return self.order(client_id)
+        if r.status_code in (401, 403):
+            raise BrokerError(f"alpaca paper refused the request ({r.status_code})")
         if r.status_code >= 400:
             return {"client_id": client_id, "status": "REJECTED", "reason": r.text[:200]}
-        return {"client_id": client_id, "status": "SUBMITTED", "broker_id": r.json().get("id")}
+        return self._norm(r.json())
+
+    def order(self, client_id) -> dict:
+        r = self._req("GET", "/orders:by_client_order_id", params={"client_order_id": client_id})
+        if r.status_code >= 400:
+            return {"client_id": client_id, "status": "UNKNOWN", "reason": r.text[:200]}
+        return self._norm(r.json())
+
+    @staticmethod
+    def _norm(o: dict) -> dict:
+        st = {"filled": "FILLED", "partially_filled": "PARTIALLY_FILLED", "canceled": "CANCELLED", "rejected": "REJECTED", "expired": "EXPIRED"}.get(o.get("status"), "SUBMITTED")
+        return {"client_id": o.get("client_order_id"), "broker_id": o.get("id"), "status": st, "filled_qty": int(float(o.get("filled_qty") or 0)),
+                "avg_px": float(o["filled_avg_price"]) if o.get("filled_avg_price") else None}
 
     def fill_market(self, client_id, px, bar_volume, ts):
-        raise NotImplementedError("Alpaca fills arrive from the broker; poll /orders:by_client_order_id (not wired: unverified integration)")
+        return self.order(client_id)      # fills come from the broker; the caller's price is not used
 
     def positions(self):
-        import httpx
-        r = httpx.get(f"{self.BASE}/positions", headers=self.headers, timeout=15)
-        r.raise_for_status()
+        r = self._req("GET", "/positions")
+        if r.status_code >= 400:
+            raise BrokerError(f"alpaca paper positions failed ({r.status_code})")
         return {p["symbol"]: int(float(p["qty"])) for p in r.json()}

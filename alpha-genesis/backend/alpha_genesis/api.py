@@ -388,7 +388,7 @@ def create_app(rt: Runtime) -> FastAPI:
                            "credentials_present": bool(ctx.cfg.secret("ALPHAVANTAGE_API_KEY")),
                            "status": "handshake, auth, daily bars and USD/CAD verified live; 5-minute bars need a paid Alpha Vantage plan (UNVERIFIED)"}],
                   "brokers": [{"name": "internal-paper", "status": "verified (automated tests)", "active": True},
-                              {"name": "alpaca-paper", "status": "UNVERIFIED — adapter written, never connected", "active": False},
+                              {"name": "alpaca-paper (mirror of approved paper orders, live sessions only)", "status": "UNVERIFIED live — tested against a simulated paper API", "active": rt.engine.mirror is not None},
                               {"name": "live trading", "status": "NOT IMPLEMENTED — requires separate authorisation and review", "active": False}],
                   "datasets": db.q("SELECT * FROM datasets ORDER BY id DESC LIMIT 15"), "schedules": db.q("SELECT * FROM schedules"),
                   "hardware": {"cpus": os.cpu_count(), "memory_mb": mem, "disk_free_gb": round(du.free / 1e9, 1), "data_dir_mb": round(size / 1e6, 1), "load": os.getloadavg()},

@@ -45,6 +45,9 @@ class Config:
         self.alpha = _load(self.config_dir / "alpha.toml")
         for k, v in (overrides or {}).items():  # {"darwin": {"population": 12}}
             self.alpha.setdefault(k, {}).update(v) if isinstance(v, dict) else self.alpha.__setitem__(k, v)
+        for env, key, cast in (("AG_PROVIDER", "provider", str), ("AG_HISTORY_START", "history_start", str), ("AG_REPLAY_RESERVE_DAYS", "replay_reserve_days", int)):
+            if os.environ.get(env):                 # per-deployment overrides without editing the shared config file
+                self.alpha["data"][key] = cast(os.environ[env])
         self.risk = Frozen(_load(self.config_dir / "risk.toml"))
         self.policy = Frozen(_load(self.config_dir / "validation_policy.toml"))
 

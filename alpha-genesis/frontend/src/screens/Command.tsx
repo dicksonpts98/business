@@ -36,6 +36,9 @@ export default function Command() {
         </div>
       </Panel>
 
+      {!d.champion && d.research.last_cycles?.some((c: any) => c.status === "done") && !(d.counts.SHADOW > 0) && (
+        <div className="col-span-12 border border-warn/40 bg-warn/5 rounded-lg px-4 py-2.5 text-sm"><b className="text-warn tracking-wide">NO VALID EDGE FOUND</b>
+          <span className="text-dim"> — {d.research.last_cycles.filter((c: any) => c.status === "done").length} recent research cycle(s) completed on {d.data_label} data; no strategy passed independent validation. The system is in no-trade mode.</span></div>)}
       <Panel className="col-span-12 xl:col-span-7" title="Portfolio simulation — paper equity (CAD)" tag={<Tag kind={d.data_kind} seg="paper trading" />}>
         {eq.length > 1 ? <Lines series={[{ name: "equity", data: eq.map((e: any) => e.equity), bold: true }, { name: "start", data: eq.map(() => p.start_cad), color: "#475569", dash: true }]} labels={eq.map((e: any) => e.day)} zero={false} height={210} />
           : <Empty>No paper sessions yet. Paper trading begins only after a strategy passes independent validation and a shadow period.</Empty>}

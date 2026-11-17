@@ -53,7 +53,8 @@ def main(argv=None):
             log.info("probe ok: %s 2024-03-12 feed=%s -> %d bars", cfg.symbols[0], src.feeds[0], len(probe))
             rep = src.update(cfg.symbols, start, log=log.info)
             if src.fx is not None:
-                rep["fx_rows_fetched"] = src.fx.update(start)
+                rep["fx_rows_fetched"] = src.fx.try_update(start, log.warning)
+                rep["fx_cached"] = {"rows": int(len(src.fx.df)), "first": str(src.fx.df["date"].min()), "last": str(src.fx.df["date"].max())}
             print(json.dumps(rep, indent=1, default=str))
         except AlpacaError as e:
             print(json.dumps({"status": "failed", "error_type": type(e).__name__, "error": str(e), "auth_mode": src.client.auth_mode,
