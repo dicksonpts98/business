@@ -78,3 +78,4 @@ if curl -fs "$URL/api/health" >/dev/null 2>&1; then
 else
   say_ "Still starting after 30 minutes. Check $ROOT/logs/alpha-genesis.log"
 fi
+exit 0
