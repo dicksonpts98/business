@@ -95,13 +95,35 @@ Live checks (not unit tests): authenticated probe HTTP 200; full download 197 re
 real-data look-ahead probe 0 mismatches in 52,676 comparisons; dashboard smoke check on the real-data
 run, 10/10 screens.
 
+## Addendum — v3 (2026-11-17)
+
+```bash
+cd backend && python -m pytest tests -q -p no:cacheprovider      # 143 passed in 595.00s, 0 failed
+node scripts/smoke.cjs http://127.0.0.1:8000 docs/screenshots_real # 10/10 screens ok on the ten-symbol real-data run
+./scripts/package.sh                                               # builds and checks release/ALPHA-GENESIS-v3.0.zip
+```
+
+`tests/test_v3.py` (9 tests): Alpaca-style fees by date and side, exact cost decomposition, the cost-ratio
+filter, paper = backtest under the new fee model, validated mode never trading a shadow strategy,
+experimental mode trading an approved shadow under reduced limits and doing nothing when none is approved,
+account sync and the confirmed diagnostic order against a simulated paper API, and plain reporting when the
+paper account is unreachable. An intermediate full run was 142 passed / 1 failed: the new cost-ratio test
+depended on a cost table left set by another test; the test was isolated and the suite re-run clean.
+
+Live checks: ten-symbol download (755,280 bars, 22 rate-limit retries handled); the app served on the
+real-data run reports the Alpaca paper account as unreachable and refuses a diagnostic without confirmation.
+The release zip was extracted to an empty directory and the application was initialised and served from
+the extracted files (Linux).
+
 ## Not tested
 
 - Docker image build and `docker compose up` (no Docker daemon in the build environment).
 - The Alpaca paper-broker mirror against the real paper API (host not reachable from the build environment).
 - Alpaca's rate-limit, retry and feed-fallback paths against the real service (never triggered).
 - Alpha Vantage 5-minute bars through MCP against the real service (free plan refuses them).
-- Windows/WSL2 and macOS (Linux only).
+- Windows/WSL2 and macOS (Linux only), including `start.bat` and the scheduled-task installer.
+- The Alpaca paper account, diagnostic order and order mirror against the real paper API.
+- The regulatory fee rates against a published schedule.
 - Any real market data. Parquet import shares the CSV code path after file reading but only CSV has a
   round-trip test; Parquet reading is exercised by the store itself.
 - Multi-day soak of the timer-driven schedule (the scheduler, queue, retry and recovery paths are unit

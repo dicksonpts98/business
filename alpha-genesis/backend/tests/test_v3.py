@@ -65,7 +65,10 @@ def test_costs_decompose_exactly_and_legacy_is_dearer(env):
 
 
 def test_cost_ratio_feature_is_causal_and_filters_trades(env):
-    m, fs, d = env
+    m, _, d = env
+    set_costs({})                                                         # isolate from any cost table left by another test's runtime
+    fs = FeatureStore(m, "SPY")
+    liedetector.detect(m, fs)
     cr = fs["cost_ratio"]
     assert np.nanmedian(cr[0]) < np.nanmedian(cr[2]) * 5 and (cr[np.isfinite(cr)] > 0).all()
     spy_cost, nvda_cost = np.nanmedian(cr[0] * fs["_rv78"][0]), np.nanmedian(cr[2] * fs["_rv78"][2])

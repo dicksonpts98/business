@@ -47,6 +47,19 @@ against the real thing. **Not built**: absent.
 | Bid/ask quotes, spreads, order book | Not built | Spreads are modelled constants; flagged on every review. |
 | Real historical evaluation | **Done** | See REAL_DATA_REPORT.md: no valid edge found. Promotion/rollback never occurred on real data because nothing qualified; those paths are proven only on synthetic data. |
 
+## v3 additions (2026-11-17)
+
+| Item | Status | Notes |
+| --- | --- | --- |
+| Alpaca-style fee model with separated commission / regulatory / spread / slippage and FX translation | Tested | Regulatory **rates unverified** (sources unreachable); commission-free is not in doubt. Legacy schedule retained. |
+| Cost-aware entry feature, 15/30/60/120-minute and session-close holds, failure-driven hypotheses | Tested; run on real data | Did not produce a strategy that passes validation. |
+| Ten-symbol universe | Run on real data | 755,280 SIP bars; no improvement. Spreads for the added symbols are assumptions. |
+| Paper modes: validated / experimental (reduced limits) | Tested on synthetic | Never exercised on real data because no strategy has ever been approved there. |
+| Alpaca paper account sync, confirmed diagnostic order, order mirror | Tested against a simulated API; **unverified live** | `paper-api.alpaca.markets` is blocked in the build environment and has no saved credential. |
+| Windows `start.bat`, scheduled-task installer | **Unverified** | Written for Windows; never run on a Windows machine. |
+| Release zip | Built and verified on Linux | See TESTING_REPORT.md. |
+| Alpaca rate-limit retry path | Verified live | 22 retries handled during the ten-symbol download. |
+
 ## Dashboard
 
 All ten screens load real stored results and label their data kind and segment (browser smoke check).

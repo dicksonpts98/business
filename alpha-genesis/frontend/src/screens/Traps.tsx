@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useApi, f, pct } from "../api";
 import { Panel, Tag, Candles, Hist, Pill, Btn, Loading, Empty, evMarker, REG } from "../ui";
 
-export default function Traps() {
+export default function Traps({ status }: any) {
   const qs = new URLSearchParams(location.hash.split("?")[1] || "");
   const [sym, setSym] = useState(qs.get("symbol") || "SPY"), [pat, setPat] = useState(""), [sel, setSel] = useState<number | null>(null), [reveal, setReveal] = useState(false);
   const { data: ev, error } = useApi(`/api/events?symbol=${sym}${pat ? `&pattern=${pat}` : ""}&limit=120`, 15000);
@@ -38,7 +38,7 @@ export default function Traps() {
           <div className="mt-2 pt-2 border-t border-line grid grid-cols-2 gap-x-4 gap-y-0.5">{Object.entries(lv).map(([k, v]: any) => <div key={k} className="flex justify-between"><span className="text-dim">{k}</span><span className="num">{f(v, 2)}</span></div>)}</div>
         </div>) : <Empty>—</Empty>}
       </Panel>
-      <Panel className="col-span-12 xl:col-span-5" title="Event timeline" right={<div className="flex gap-1.5"><select className={sl} value={sym} onChange={(e) => setSym(e.target.value)}>{["SPY", "QQQ", "NVDA", "TSLA"].map((s) => <option key={s}>{s}</option>)}</select>
+      <Panel className="col-span-12 xl:col-span-5" title="Event timeline" right={<div className="flex gap-1.5"><select className={sl} value={sym} onChange={(e) => setSym(e.target.value)}>{(status?.symbols || ["SPY", "QQQ", "NVDA", "TSLA"]).map((s: string) => <option key={s}>{s}</option>)}</select>
         <select className={sl} value={pat} onChange={(e) => setPat(e.target.value)}><option value="">all patterns</option>{Object.keys(ev.patterns).map((p) => <option key={p}>{p}</option>)}</select></div>}>
         <div className="max-h-80 overflow-y-auto"><table><thead><tr><th>Detected (UTC)</th><th>Pattern</th><th>Fade</th><th>Level</th><th>Segment</th></tr></thead>
           <tbody>{ev.events.map((e: any) => (<tr key={e.id} onClick={() => { setSel(e.id); setReveal(false); }} className={`cursor-pointer ${e.id === sel ? "bg-raised" : ""}`}><td className="num">{e.ts.slice(0, 16).replace("T", " ")}</td><td>{e.pattern.replace(/_/g, " ")}</td>

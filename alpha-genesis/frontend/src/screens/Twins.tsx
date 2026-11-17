@@ -14,7 +14,7 @@ export default function Twins({ status }: any) {
     <div className="space-y-3">
       <Panel title="Query — which earlier market states does this moment resemble?">
         <div className="flex flex-wrap gap-2 items-center">
-          <select className={sel} value={sym} onChange={(x) => setSym(x.target.value)}>{["SPY", "QQQ", "NVDA", "TSLA"].map((s) => <option key={s}>{s}</option>)}</select>
+          <select className={sel} value={sym} onChange={(x) => setSym(x.target.value)}>{(status?.symbols || ["SPY", "QQQ", "NVDA", "TSLA"]).map((s: string) => <option key={s}>{s}</option>)}</select>
           <select className={sel} value={day} onChange={(x) => setDay(x.target.value)}><option value="">latest session</option>{(days?.days || []).slice(-250).reverse().map((x: any) => <option key={x.day} value={x.day}>{x.day} · {x.segment}</option>)}</select>
           <label className="text-xs text-dim">time {t(bar)} ET</label><input type="range" min={11} max={77} value={bar} onChange={(x) => setBar(+x.target.value)} className="w-48 accent-cyan-400" />
           <select className={sel} value={method} onChange={(x) => setMethod(x.target.value)}>{Object.entries(d.methods).map(([k, v]: any) => <option key={k} value={k}>{v}</option>)}</select>

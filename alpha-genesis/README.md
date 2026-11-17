@@ -8,6 +8,8 @@ with a dashboard that shows every stored experiment.
 > - **Real-data result: NO VALID EDGE FOUND.** On 302,112 real 5-minute bars (Alpaca SIP, SPY/QQQ/NVDA/TSLA,
 >   2023-01-03 → 2026-11-16) the system evaluated 2,466 strategies, none passed validation, and it never
 >   traded. See [docs/REAL_DATA_REPORT.md](docs/REAL_DATA_REPORT.md).
+> - **v3** corrected the fee model (commission-free, as at Alpaca) and improved the search; costs roughly
+>   halved but still nothing passed validation, on 4 or on 10 symbols. See [docs/V3_REPORT.md](docs/V3_REPORT.md).
 > - The synthetic experiments ([docs/RESEARCH_REPORT.md](docs/RESEARCH_REPORT.md)) show the machinery can
 >   find, trade and then abandon an effect that is deliberately planted. They are not market evidence.
 > - **Paper only.** There is no live order routing in this codebase, and the Risk Guardian refuses to
@@ -56,6 +58,7 @@ a research cycle. Everything is checkpointed and resumes after a crash or restar
 ## Documentation
 
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — running it, credentials, importing data, scheduling, backups
+- [docs/V3_REPORT.md](docs/V3_REPORT.md) — fee audit, improved search, original vs improved on real data
 - [docs/REAL_DATA_REPORT.md](docs/REAL_DATA_REPORT.md) — the real-market evaluation (Alpaca SIP data)
 - [docs/RESEARCH_REPORT.md](docs/RESEARCH_REPORT.md) — synthetic positive and null controls
 - [docs/TESTING_REPORT.md](docs/TESTING_REPORT.md) — test commands, results, defects found and fixed

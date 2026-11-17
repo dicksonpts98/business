@@ -68,7 +68,7 @@ def create_app(rt: Runtime) -> FastAPI:
         ok, n = db.verify_audit()
         prov = rt.provider
         nxt = prov.next_session(m.days[-1])
-        return {**kind(), "provenance": m.provenance, "sessions": m.D, "first_day": m.days[0].isoformat(), "last_day": m.days[-1].isoformat(),
+        return {**kind(), "symbols": m.symbols, "provenance": m.provenance, "sessions": m.D, "first_day": m.days[0].isoformat(), "last_day": m.days[-1].isoformat(),
                 "next_session": nxt.isoformat() if nxt else None, "dataset_version": m.version,
                 "epoch": {"id": ep.id, "development": [m.days[ep.dev_start].isoformat(), m.days[ep.dev_end - 1].isoformat()],
                           "validation": [m.days[ep.dev_end].isoformat(), m.days[ep.val_end - 1].isoformat()],
