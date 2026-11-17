@@ -129,7 +129,7 @@ class AlpacaHistory(Provider):
     A month is fetched once; only months not yet complete (the current one) are refreshed, so updates
     are incremental and repeatable. If the preferred feed is refused, the exact server message is kept
     in the manifest and the next permitted feed is used — never synthetic data."""
-    name, verified = "alpaca", False
+    name, verified = "alpaca", True      # bars endpoint verified against the live service on 2026-11-17 (SIP, 2023-01-03 onward)
 
     def __init__(self, root: Path, client: AlpacaClient, feeds: tuple[str, ...] = ("sip", "iex"), fx=None, today: date | None = None):
         self.root, self.client, self.feeds, self.fx = Path(root), client, feeds, fx

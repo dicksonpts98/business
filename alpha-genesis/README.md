@@ -5,14 +5,11 @@ discover, test, reject, promote and monitor intraday trading strategies without 
 with a dashboard that shows every stored experiment.
 
 > **Read this first.**
-> - **No strategy here has been evaluated on real market data.** A live MCP connection to Alpha
->   Vantage works and real daily bars and USD/CAD rates were fetched, but the free plan refuses the
->   5-minute bars the engines need, so all research results come from a clearly labelled
->   **synthetic** market. They demonstrate that the machinery works. They say nothing about whether any
->   edge exists in real markets.
-> - **No profitable trading edge is claimed.** The synthetic market contains a deliberately planted
->   effect (a positive control) and the system finds it; on a market with nothing planted it approves
->   nothing. See [docs/RESEARCH_REPORT.md](docs/RESEARCH_REPORT.md).
+> - **Real-data result: NO VALID EDGE FOUND.** On 302,112 real 5-minute bars (Alpaca SIP, SPY/QQQ/NVDA/TSLA,
+>   2023-01-03 → 2026-11-16) the system evaluated 2,466 strategies, none passed validation, and it never
+>   traded. See [docs/REAL_DATA_REPORT.md](docs/REAL_DATA_REPORT.md).
+> - The synthetic experiments ([docs/RESEARCH_REPORT.md](docs/RESEARCH_REPORT.md)) show the machinery can
+>   find, trade and then abandon an effect that is deliberately planted. They are not market evidence.
 > - **Paper only.** There is no live order routing in this codebase, and the Risk Guardian refuses to
 >   start if `paper_only` is turned off.
 
@@ -54,7 +51,8 @@ a research cycle. Everything is checkpointed and resumes after a crash or restar
 ## Documentation
 
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — running it, credentials, importing data, scheduling, backups
-- [docs/RESEARCH_REPORT.md](docs/RESEARCH_REPORT.md) — what the experiments found, including negatives
+- [docs/REAL_DATA_REPORT.md](docs/REAL_DATA_REPORT.md) — the real-market evaluation (Alpaca SIP data)
+- [docs/RESEARCH_REPORT.md](docs/RESEARCH_REPORT.md) — synthetic positive and null controls
 - [docs/TESTING_REPORT.md](docs/TESTING_REPORT.md) — test commands, results, defects found and fixed
 - [docs/AUDIT.md](docs/AUDIT.md) — implemented vs tested vs unverified vs not built
 - [docs/RESOURCES.md](docs/RESOURCES.md) — hardware, compute, optional provider costs, maintenance
@@ -69,5 +67,5 @@ node scripts/smoke.cjs http://127.0.0.1:8000     # browser check of all ten scre
 
 ## Screenshots
 
-Captured by `scripts/smoke.cjs` from the finished synthetic demo run: [docs/screenshots/](docs/screenshots/)
+Real-data run: [docs/screenshots_real/](docs/screenshots_real/). Synthetic demo run: [docs/screenshots/](docs/screenshots/)
 (`command`, `radar`, `twins`, `traps`, `darwin`, `arena`, `skeptic`, `paper`, `learning`, `settings`).

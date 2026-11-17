@@ -40,11 +40,12 @@ against the real thing. **Not built**: absent.
 | USD/CAD handling with as-of dates and staleness block | Tested | No automated FX fetcher. |
 | MCP client + Alpha Vantage MCP provider: handshake, bearer auth, tool discovery, daily bars, USD/CAD | Tested (simulated server) and verified live | Real data fetched 2026-11-16 with a free key: 100 daily bars × 4 instruments and 100 USD/CAD rates. |
 | Alpha Vantage MCP 5-minute bars | Unverified | The free plan refuses `TIME_SERIES_INTRADAY` (premium endpoint). Code follows the published tool schema; tested only against a simulated server. |
-| Alpaca market-data adapter | Unverified | Never connected. |
-| Alpaca paper-broker adapter | Unverified / incomplete | Submit and positions written; fills are not wired into the paper engine. |
+| Alpaca market data: paginated/retried client, month-partitioned Parquet store, incremental update, SIP→IEX fallback | Tested (simulated server) and **verified live** | 302,112 real bars downloaded 2026-11-17, SIP, 0 refusals, 0 retries. The fallback and retry paths were never triggered live. |
+| Bank of Canada USD/CAD | Verified live (2026-11-16) | Host has since been removed from the build environment's allow-list; refresh fails soft and the cache is used. |
+| Alpaca paper-broker mirror | Tested (simulated paper API); **unverified live** | Mirrors risk-approved paper orders on live sessions only, reconciles positions, cannot affect the internal account. `paper-api.alpaca.markets` is not reachable from the build environment and no paper-trading secret exists for it. Opt in with `[broker] mirror = "alpaca_paper"`. |
 | Databento or other providers | Not built | Implement `Provider` (3 methods). |
 | Bid/ask quotes, spreads, order book | Not built | Spreads are modelled constants; flagged on every review. |
-| Real historical evaluation | **Not done** | Real *daily* bars are now reachable, but the engines need 5-minute bars, which no free source reachable from here provides. Still the largest gap. |
+| Real historical evaluation | **Done** | See REAL_DATA_REPORT.md: no valid edge found. Promotion/rollback never occurred on real data because nothing qualified; those paths are proven only on synthetic data. |
 
 ## Dashboard
 

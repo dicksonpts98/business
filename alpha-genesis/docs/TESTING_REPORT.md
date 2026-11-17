@@ -79,10 +79,27 @@ failures, 5 calls.
 A defect fixed along the way: the CSV importer used a session's own daily USD/CAD rate for sizing during
 that session; it now uses the latest rate dated before the session.
 
+## Addendum — Alpaca, FX, paper-broker mirror (2026-11-17)
+
+Baseline before any change this session: `python -m pytest tests -q -p no:cacheprovider` → **123 passed**.
+After adding `tests/test_alpaca.py` (7 tests): **130 passed in 494.95s**. Four mirror-broker tests were
+then added to `tests/test_paper.py`: final full run **134 passed in 474.79s, 0 failed**.
+
+`test_alpaca.py` covers pagination, retry with backoff on 429/5xx/dropped connections, credentials in
+headers only, de-duplication, session filtering, checksums, incremental updates, the recorded SIP
+refusal with IEX fallback, ingestion with the previous day's FX rate, and implausible-FX rejection.
+The session-availability defect found while writing it (a fixed-clock provider offered sessions beyond
+"today") was fixed.
+
+Live checks (not unit tests): authenticated probe HTTP 200; full download 197 requests, 0 retries;
+real-data look-ahead probe 0 mismatches in 52,676 comparisons; dashboard smoke check on the real-data
+run, 10/10 screens.
+
 ## Not tested
 
 - Docker image build and `docker compose up` (no Docker daemon in the build environment).
-- `AlpacaProvider` and `AlpacaPaperBroker` against the real service (no credentials, host blocked).
+- The Alpaca paper-broker mirror against the real paper API (host not reachable from the build environment).
+- Alpaca's rate-limit, retry and feed-fallback paths against the real service (never triggered).
 - Alpha Vantage 5-minute bars through MCP against the real service (free plan refuses them).
 - Windows/WSL2 and macOS (Linux only).
 - Any real market data. Parquet import shares the CSV code path after file reading but only CSV has a
