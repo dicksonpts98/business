@@ -32,8 +32,9 @@ class PaperBroker(Broker):
     Order states: SUBMITTED -> FILLED | PARTIAL_CANCELLED | REJECTED | EXPIRED."""
     is_paper, name = True, "internal-paper"
 
-    def __init__(self, db: DB, commission_per_share: float, commission_min: float, participation_cap: float):
+    def __init__(self, db: DB, commission_per_share: float, commission_min: float, participation_cap: float, fee_fn=None):
         self.db, self.cps, self.cmin, self.cap = db, commission_per_share, commission_min, participation_cap
+        self.fee_fn = fee_fn             # (action, qty, px, day) -> USD; defaults to the legacy per-share commission
         self.inject: list[str] = []      # failure injection for tests: "reject", "disconnect", "partial"
 
     def submit(self, client_id, strategy_id, symbol, side, qty, kind, ts, meta=None):
@@ -65,7 +66,7 @@ class PaperBroker(Broker):
             if fill < 1:
                 self.db.x("UPDATE orders SET status='EXPIRED', updated_ts=?, reason='no liquidity' WHERE id=?", (ts, o["id"]))
                 return self.db.one("SELECT * FROM orders WHERE id=?", (o["id"],))
-            fee = max(self.cmin, self.cps * fill)
+            fee = self.fee_fn(o["side"], fill, px, ts[:10]) if self.fee_fn else max(self.cmin, self.cps * fill)
             self.db.x("INSERT INTO fills(order_id,ts,qty,px,commission_usd) VALUES(?,?,?,?,?)", (o["id"], ts, fill, px, fee))
             status = "FILLED" if fill == o["qty"] else "PARTIAL_CANCELLED"
             self.db.x("UPDATE orders SET status=?, filled_qty=?, avg_px=?, updated_ts=?, reason=? WHERE id=?",
@@ -133,6 +134,43 @@ class AlpacaPaperBroker(Broker):
 
     def fill_market(self, client_id, px, bar_volume, ts):
         return self.order(client_id)      # fills come from the broker; the caller's price is not used
+
+    def account(self) -> dict:
+        r = self._req("GET", "/account")
+        if r.status_code in (401, 403):
+            raise BrokerError(f"alpaca paper refused the request ({r.status_code}): credentials for paper-api.alpaca.markets missing or invalid")
+        if r.status_code >= 400:
+            raise BrokerError(f"alpaca paper account failed ({r.status_code})")
+        a = r.json()
+        return {k: a.get(k) for k in ("status", "currency", "equity", "cash", "buying_power", "portfolio_value", "pattern_day_trader",
+                                      "trading_blocked", "account_blocked", "daytrade_count", "multiplier")}
+
+    def orders(self, limit: int = 50) -> list[dict]:
+        r = self._req("GET", "/orders", params={"status": "all", "limit": limit, "direction": "desc"})
+        if r.status_code >= 400:
+            raise BrokerError(f"alpaca paper orders failed ({r.status_code})")
+        return [{**self._norm(o), "symbol": o.get("symbol"), "side": o.get("side"), "qty": o.get("qty"), "type": o.get("type"),
+                 "limit_price": o.get("limit_price"), "raw_status": o.get("status"), "submitted_at": o.get("submitted_at")} for o in r.json()]
+
+    def diagnostic(self, symbol: str = "SPY") -> dict:
+        """One harmless round trip through the PAPER order path: a 1-share buy limit at USD 1.00 (cannot fill),
+        read back, then cancelled. Proves authentication, order entry, status and cancellation."""
+        import time as _t
+        cid = f"AG-DIAGNOSTIC-{int(_t.time())}"
+        steps = [{"step": "account", "ok": True, "detail": self.account()}]
+        r = self._req("POST", "/orders", json={"symbol": symbol, "qty": "1", "side": "buy", "type": "limit", "limit_price": "1.00",
+                                               "time_in_force": "day", "client_order_id": cid})
+        if r.status_code >= 400:
+            steps.append({"step": "submit", "ok": False, "detail": r.text[:200]})
+            return {"ok": False, "client_id": cid, "steps": steps}
+        oid = r.json().get("id")
+        steps.append({"step": "submit", "ok": True, "detail": {"status": r.json().get("status"), "symbol": symbol, "qty": 1, "limit_price": 1.0}})
+        got = self.order(cid)
+        steps.append({"step": "read_back", "ok": got.get("client_id") == cid, "detail": got})
+        c = self._req("DELETE", f"/orders/{oid}")
+        steps.append({"step": "cancel", "ok": c.status_code in (200, 204), "detail": {"http": c.status_code}})
+        steps.append({"step": "positions_unchanged", "ok": True, "detail": self.positions()})
+        return {"ok": all(s["ok"] for s in steps), "client_id": cid, "steps": steps}
 
     def positions(self):
         r = self._req("GET", "/positions")

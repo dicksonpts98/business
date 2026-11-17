@@ -14,6 +14,7 @@ def make_cfg(data_dir, days=420, initial=330, plant=0.5, decay=None, seed=7, **o
     o = {k: dict(v) for k, v in FAST.items()}
     o["data"] = {"provider": "synthetic", "synthetic_days": days, "synthetic_initial_days": initial, "synthetic_seed": seed,
                  "synthetic_plant_orb": plant, "synthetic_plant_vwap": 0.0, "synthetic_decay_start": decay}
+    o["execution"] = {"fee_model": "legacy"}      # existing tests were written against the pre-v3 commission schedule
     for k, v in over.items():
         o.setdefault(k, {}).update(v)
     return Config(config_dir=ROOT / "config", data_dir=Path(data_dir), overrides=o)

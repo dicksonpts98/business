@@ -335,6 +335,39 @@ def create_app(rt: Runtime) -> FastAPI:
                   "log": loads(db.q("SELECT id, ts, actor, action, detail FROM audit_log WHERE actor IN ('guardian','paper','operator','health') ORDER BY id DESC LIMIT 120"), "detail"),
                   "exposure_cad": sum(p["qty"] * p["entry_px"] * p["fx"] for p in pos)})
 
+    @app.get("/api/broker")
+    def broker_status():
+        """Alpaca PAPER account synchronisation. Reports plainly when the account cannot be reached."""
+        from .broker import BrokerError
+        L = ctx.cfg.risk
+        out = {**kind(), "broker": "alpaca-paper", "endpoint": rt.alpaca_paper.BASE, "mirror_enabled": rt.engine.mirror is not None,
+               "paper_mode": L.paper_mode, "experimental_limits": {"risk_per_trade_cad": L.risk_per_trade_cad * L.experimental_risk_fraction,
+                                                                   "max_entries_per_day": L.experimental_max_entries_per_day, "max_daily_loss_cad": L.experimental_max_daily_loss_cad},
+               "experimental_deployment": (registry.experimental_deployment(db) or {}).get("strategy_id"), "live_trading": "not implemented"}
+        try:
+            out.update(reachable=True, account=rt.alpaca_paper.account(), positions=rt.alpaca_paper.positions(), orders=rt.alpaca_paper.orders(25))
+            internal = {p["symbol"]: p["side"] * p["qty"] for p in db.q("SELECT * FROM positions")}
+            out["in_sync"] = {k: v for k, v in out["positions"].items() if k in ctx.market.symbols} == internal
+        except BrokerError as e:
+            out.update(reachable=False, error=str(e)[:200])
+        out["last_diagnostic"] = db.get_meta("broker_diagnostic")
+        return J(out)
+
+    @app.post("/api/broker/diagnostic")
+    def broker_diagnostic(confirm: str = "", x_operator_token: str | None = Header(None)):
+        operator(x_operator_token)
+        if confirm != "PAPER-DIAGNOSTIC":
+            raise HTTPException(400, "confirmation required: pass confirm=PAPER-DIAGNOSTIC")
+        from .broker import BrokerError
+        try:
+            res = rt.alpaca_paper.diagnostic(ctx.cfg.proxy)
+        except BrokerError as e:
+            res = {"ok": False, "error": str(e)[:200], "steps": []}
+        res["ts"] = time.time()
+        db.set_meta("broker_diagnostic", res)
+        db.audit("operator", "broker.diagnostic", {"ok": res["ok"], "client_id": res.get("client_id"), "error": res.get("error")})
+        return J(res)
+
     # ------------------------------------------------------------------ learning monitor
     @app.get("/api/learning")
     def learning_monitor():
@@ -376,7 +409,8 @@ def create_app(rt: Runtime) -> FastAPI:
         except Exception:
             pass
         size = sum(f.stat().st_size for f in ctx.cfg.data_dir.rglob("*") if f.is_file())
-        return J({**kind(), "config": ctx.cfg.alpha, "risk": ctx.cfg.risk.as_dict(), "policy": ctx.cfg.policy.as_dict(),
+        from . import fees as _fees
+        return J({**kind(), "fees": _fees.describe(ctx.cfg), "config": ctx.cfg.alpha, "risk": ctx.cfg.risk.as_dict(), "policy": ctx.cfg.policy.as_dict(),
                   "providers": [{"name": "synthetic-simulated-feed", "status": "verified (automated tests)", "active": rt.provider.name == "synthetic-simulated-feed"},
                                 {"name": "local-files (CSV / Parquet import)", "status": "verified (automated tests)", "active": rt.provider.name == "local-files"},
                                 {"name": "alpaca (market data v2: paginated, retried, month-partitioned Parquet cache)", "active": rt.provider.name == "alpaca",

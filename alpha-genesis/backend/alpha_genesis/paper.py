@@ -24,7 +24,9 @@ class PaperEngine:
     def __init__(self, ctx: Ctx, broker: Broker | None = None):
         self.ctx, self.db, self.cfg = ctx, ctx.db, ctx.cfg
         ex = self.cfg.alpha["execution"]
-        self.broker = broker or PaperBroker(self.db, ex["commission_per_share_usd"], ex["commission_min_usd"], ex["participation_cap"])
+        from . import fees
+        self.broker = broker or PaperBroker(self.db, ex["commission_per_share_usd"], ex["commission_min_usd"], ex["participation_cap"],
+                                            fee_fn=lambda action, qty, px, day: fees.fill_fee(self.cfg, action, qty, px, day)["total"])
         self.guardian = RiskGuardian(self.cfg, self.db)
         self.crash_at: int | None = None     # failure injection: raise after committing this bar
         self.mirror: Broker | None = None    # optional external PAPER broker that mirrors orders on live sessions only
@@ -86,12 +88,18 @@ class PaperEngine:
         dep = registry.active_deployment(db)
         champ = registry.champion(db)
         spec: StrategySpec | None = None
-        if dep and champ and dep["strategy_id"] == champ["id"]:
+        mode, risk_scale, loss_limit = "validated", 1.0, L.max_daily_loss_cad
+        if not (dep and champ and dep["strategy_id"] == champ["id"]):
+            dep = registry.experimental_deployment(db) if (L.paper_mode == "experimental" and champ is None) else None
+            if dep:
+                mode, risk_scale = "experimental", min(1.0, L.experimental_risk_fraction)
+                loss_limit = min(L.max_daily_loss_cad, L.experimental_max_daily_loss_cad)
+        if dep:
             art = json.loads(dep["artifact"])
             spec = StrategySpec.model_validate(art["spec"])      # trade the frozen artifact, not the registry row
             if spec.hash() != art["spec_hash"]:
                 raise RuntimeError("deployment artifact does not match its spec hash")
-        sid = champ["id"] if spec else None
+        sid = dep["strategy_id"] if spec else None
         sig = ctx.signals(spec)[:, d] if spec else None
         pats = spec.trigger.patterns if spec and spec.trigger.kind == "event" and not spec.trigger.invert else []
         fx, fx_asof = m.fx[d], m.fx_asof[d]
@@ -140,7 +148,7 @@ class PaperEngine:
                         reason, raw_x = "time", c_
                     elif b == B - 1 or not np.isfinite(m.c[s, d, b + 1:]).any():
                         reason, raw_x = "eod", c_
-                    elif st["realized"] + unreal <= -L.max_daily_loss_cad or self.guardian.halted():
+                    elif st["realized"] + unreal <= -loss_limit or self.guardian.halted():
                         reason, raw_x = "risk_flatten", c_
                         st["interventions"] += 1
                     if reason:
@@ -163,7 +171,7 @@ class PaperEngine:
                                 dist = side * (c_ * (1 + side * cost_frac(self.cfg, sym, "base")) - inv)
                                 break
                         dist = float(max(dist, 0.5 * a, 0.0005 * c_))
-                        risk = L.risk_per_trade_cad * (0.5 if spec.sizing == "half_risk" else 1.0)
+                        risk = L.risk_per_trade_cad * risk_scale * (0.5 if spec.sizing == "half_risk" else 1.0)
                         want = int(risk / (dist * fx)) if np.isfinite(fx) else 0
                         cid = f"{sid}:{sym}:{day_s}:{b}:entry"
                         last_ts = max((mcal.bar_open_utc(day, bb + 1) for bb in range(b, -1, -1) if np.isfinite(m.c[s, d, bb])), default=mcal.bar_open_utc(day, 0))
@@ -216,9 +224,9 @@ class PaperEngine:
             db.x("INSERT INTO equity(day,d,equity_cad,pnl_cad,strategy_id) VALUES(?,?,?,?,?)", (day_s, d, eq0 + st["realized"], st["realized"], sid))
             db.set_meta("paper_progress", {"day": day_s, "bar": B - 1, "done": True})
         # paper-vs-backtest discrepancy monitor
-        out = {"day": day_s, "strategy": sid, "pnl_cad": st["realized"], "entries": st["entries"], "rejects": st["rejects"],
+        out = {"day": day_s, "strategy": sid, "mode": mode if sid else "no-trade", "pnl_cad": st["realized"], "entries": st["entries"], "rejects": st["rejects"],
                "interventions": st["interventions"], "reconciliation": diffs}
-        if spec is not None:
+        if spec is not None and mode == "validated":
             bt = ctx.backtest(spec, d, d + 1, equity0=eq0)      # same starting equity: differences are real discrepancies
             diff = st["realized"] - float(bt.daily.sum())
             out["backtest_pnl_cad"], out["discrepancy_cad"] = float(bt.daily.sum()), diff

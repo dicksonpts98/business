@@ -11,3 +11,12 @@ stale_data_seconds = 600
 fx_stale_days = 4
 no_entry_last_minutes = 30
 paper_only = true
+
+# Paper-trading modes (operator-only; research code cannot change these).
+#   "validated"    — only a promoted champion trades, with the full limits above.
+#   "experimental" — when there is no champion, the best Skeptic-approved strategy still in its shadow period may
+#                    trade with the reduced limits below. Nothing trades if no strategy has passed the Skeptic.
+paper_mode = "validated"
+experimental_risk_fraction = 0.25
+experimental_max_entries_per_day = 5
+experimental_max_daily_loss_cad = 50.0

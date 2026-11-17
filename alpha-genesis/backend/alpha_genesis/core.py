@@ -53,6 +53,8 @@ class ResearchView:
 class Ctx:
     def __init__(self, cfg: Config):
         self.cfg, self.db = cfg, DB(cfg.db_path)
+        from . import features as _f
+        _f.set_costs({s: 2 * (cfg.instrument(s)["half_spread_bps"] + cfg.alpha["execution"]["slippage_bps"]) for s in cfg.symbols})
         self.market: Market | None = None
         self.fs: FeatureStore | None = None
         self.dop: Doppelganger | None = None

@@ -9,7 +9,7 @@ across the whole universe. The same function serves every strategy in every aren
 from __future__ import annotations
 from dataclasses import dataclass, field
 import numpy as np
-from . import stats
+from . import fees, stats
 from .config import BARS_PER_DAY as B, Config
 from .dsl import StrategySpec, signals
 from .market import Market
@@ -120,7 +120,11 @@ def run(spec: StrategySpec, m: Market, fs, cfg: Config, d0: int, d1: int, scenar
             continue
         xb, raw_x, reason = simulate_exit(o, h, l, c, eb, side, stop, target, spec.exit.max_hold, hsp[s])
         exit_px = raw_x if reason == "target" else raw_x * (1 - side * cfr[s])
-        fee = comm * 2 * max(ex["commission_min_usd"], ex["commission_per_share_usd"] * qty)
+        f_in, f_out = fees.fill_fee(cfg, side, qty, raw_e, m.days[d], scenario), fees.fill_fee(cfg, -side, qty, raw_x, m.days[d], scenario)
+        fee = f_in["total"] + f_out["total"]
+        mult_ = cfr[s] / max(hsp[s] + ex["slippage_bps"] / 1e4, 1e-12)          # scenario multiplier (0, 1 or stress)
+        traded = (raw_e + (0.0 if reason == "target" else raw_x)) * qty          # a limit target pays no spread or slippage
+        spread_usd, slip_usd = traded * hsp[s] * mult_, traded * ex["slippage_bps"] / 1e4 * mult_
         gross = side * (raw_x - raw_e) * qty
         net = side * (exit_px - entry) * qty - fee
         net_cad, gx = net * fx, d * B + xb
@@ -133,6 +137,8 @@ def run(spec: StrategySpec, m: Market, fs, cfg: Config, d0: int, d1: int, scenar
         trades.append({"s": s, "d": d, "signal_bar": b, "entry_bar": eb, "exit_bar": xb, "side": side, "qty": qty,
                        "entry": float(entry), "exit": float(exit_px), "stop": float(stop), "reason": reason,
                        "gross_cad": float(gross * fx), "net_cad": float(net_cad), "cost_cad": float((gross - net) * fx),
+                       "commission_cad": float((f_in["commission"] + f_out["commission"]) * fx), "regulatory_cad": float((f_in["regulatory"] + f_out["regulatory"]) * fx),
+                       "spread_cad": float(spread_usd * fx), "slippage_cad": float(slip_usd * fx), "fx": float(fx), "net_usd": float(net),
                        "r": float(net / (qty * dist)), "notional_cad": float(qty * raw_e * fx), "regime": int(fs["regime"][s, d, b])})
     return Result(d0, d1, daily, trades, summarize(daily, trades, start), scenario)
 
@@ -151,7 +157,10 @@ def summarize(daily: np.ndarray, trades: list[dict], start: float) -> dict:
         r["n"] += 1
         r["net_cad"] += t["net_cad"]
     days = max(len(daily), 1)
-    return {"days": len(daily), "trades": n, "net_cad": float(daily.sum()), "gross_cad": gross, "cost_cad": cost,
+    comp = {k: float(sum(t.get(k + "_cad", 0.0) for t in trades)) for k in ("commission", "regulatory", "spread", "slippage")}
+    fx0 = trades[0]["fx"] if n and "fx" in trades[0] else None      # FX translation effect: CAD result vs the same USD result at the first trade's rate
+    fx_effect = float(sum(t["net_cad"] - t["net_usd"] * fx0 for t in trades)) if fx0 else 0.0
+    return {"days": len(daily), "trades": n, "net_cad": float(daily.sum()), "gross_cad": gross, "cost_cad": cost, "cost_breakdown_cad": comp, "fx_translation_cad": fx_effect,
             "sharpe": stats.sharpe(daily / start), "max_dd_cad": stats.max_drawdown(eq) if len(eq) else 0.0,
             "win_rate": float((net > 0).mean()) if n else 0.0, "profit_factor": float(wins / losses) if losses > 0 else (None if wins == 0 else float("inf")),
             "expectancy_cad": float(net.mean()) if n else 0.0, "expectancy_r": float(np.mean([t["r"] for t in trades])) if n else 0.0,

@@ -60,8 +60,15 @@ class RiskGuardian:
         if h:
             return no(h)
         dep = registry.active_deployment(self.db)
+        risk_cad, max_entries, max_loss = L.risk_per_trade_cad, L.max_entries_per_day, L.max_daily_loss_cad
         if dep is None or dep["strategy_id"] != req["strategy_id"] or dep["sha"] != req.get("artifact_sha"):
-            return no("unauthorised: order does not come from the active, frozen champion deployment")
+            exp = registry.experimental_deployment(self.db) if (dep is None and L.paper_mode == "experimental") else None
+            if exp is None or exp["strategy_id"] != req["strategy_id"] or exp["sha"] != req.get("artifact_sha"):
+                return no("unauthorised: order does not come from the active, frozen champion deployment")
+            # experimental mode can only ever tighten the configured limits
+            risk_cad = L.risk_per_trade_cad * min(1.0, L.experimental_risk_fraction)
+            max_entries = min(L.max_entries_per_day, L.experimental_max_entries_per_day)
+            max_loss = min(L.max_daily_loss_cad, L.experimental_max_daily_loss_cad)
         if self.db.one("SELECT 1 FROM orders WHERE client_id=?", (req["client_id"],)):
             return no("duplicate order (idempotency key already used)")
         sess = mcal.session(req["day"])
@@ -75,9 +82,9 @@ class RiskGuardian:
             return no("USD/CAD rate missing or stale: CAD risk cannot be computed")
         if not self.cfg.instrument(req["symbol"]).get("shortable", True) and req["side"] < 0:
             return no("instrument not shortable")
-        if st["day_pnl"] <= -L.max_daily_loss_cad:
+        if st["day_pnl"] <= -max_loss:
             return no("daily loss limit reached")
-        if st["entries_today"] >= L.max_entries_per_day:
+        if st["entries_today"] >= max_entries:
             return no("daily entry limit reached")
         if len(st["positions"]) >= L.max_positions:
             return no("maximum simultaneous positions reached")
@@ -88,7 +95,7 @@ class RiskGuardian:
             return no("invalid stop distance")
         qty = int(req["qty"])
         fx, px, eq = req["fx"], req["entry_px"], st["equity"]
-        max_risk_qty = int(L.risk_per_trade_cad / (dist * fx))
+        max_risk_qty = int(risk_cad / (dist * fx))
         open_notional = sum(p["notional_cad"] for p in st["positions"])
         cap = min(max_risk_qty, int(L.max_instrument_exposure_x * eq / (px * fx)),
                   int((min(L.max_total_exposure_x, L.leverage_ceiling_x) * eq - open_notional) / (px * fx)))

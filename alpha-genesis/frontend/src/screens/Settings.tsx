@@ -24,6 +24,8 @@ export default function Settings() {
       <Panel className="col-span-12 xl:col-span-6" title="Instrument universe and execution assumptions">
         {kv(d.config.universe)}<div className="mt-2">{Object.entries(d.config.instruments).map(([s, v]: any) => <div key={s} className="flex gap-4 text-[11px] py-0.5"><span className="w-12 font-medium">{s}</span><span className="text-dim">half-spread {v.half_spread_bps} bps (modelled)</span><span className="text-dim">{v.shortable ? "shortable" : "not shortable"}</span></div>)}</div>
         <div className="mt-2 pt-2 border-t border-line">{kv(d.config.execution)}</div>
+        {d.fees && <div className="mt-2 pt-2 border-t border-line text-[11px]"><div className="text-[10px] text-dim uppercase mb-1">Fee model: {d.fees.model} <Pill v={d.fees.verified ? "pass" : "warn"}>{d.fees.verified ? "verified" : "rates unverified"}</Pill></div>
+          <div>Commission: {d.fees.commission}</div>{d.fees.finra_taf && <div>FINRA TAF: {d.fees.finra_taf} · CAT: {d.fees.cat} · SEC: {d.fees.sec_fee_schedule_per_million.map((x: any) => `${x[1]}/M from ${x[0]}`).join("; ")}</div>}<div className="text-dim">{d.fees.note}</div></div>}
       </Panel>
       <Panel className="col-span-12 xl:col-span-4" title="Research budgets">{kv(d.config.darwin)}<div className="text-[11px] text-dim mt-2">Edit <span className="num">[darwin]</span> in config/alpha.toml and restart.</div></Panel>
       <Panel className="col-span-12 xl:col-span-4" title="Risk configuration (operator-only file: config/risk.toml)">{kv(d.risk)}</Panel>

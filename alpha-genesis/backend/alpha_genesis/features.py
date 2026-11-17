@@ -19,8 +19,16 @@ REGISTRY: dict[str, tuple[float, float, bool]] = {
     "pd_pos": (-3, 3, True), "range_pos": (0, 1, False), "rel_vol": (0.3, 3, False), "vol_ratio": (0.4, 2.5, False),
     "illiq_ratio": (0.4, 2.5, False), "tod": (0.08, 0.92, False), "regime": (0, 2, False), "mkt_trend": (-1, 1, False),
     "dop_mean_z": (-2, 2, True), "dop_pup": (0.35, 0.65, False),
+    "cost_ratio": (0.02, 1.5, False),      # modelled round-trip cost / typical one-hour move: low = the move can pay for the trade
 }
-BASE_FEATURES = [k for k in REGISTRY if not k.startswith("dop_")]
+_COSTS: dict[str, float] = {}              # symbol -> modelled round-trip cost in bps (set once by the runtime)
+
+
+def set_costs(costs: dict[str, float]):
+    _COSTS.clear()
+    _COSTS.update(costs)
+
+BASE_FEATURES = [k for k in REGISTRY if not k.startswith("dop_") and k != "cost_ratio"]
 STATE_FEATURES = ["ret_3_z", "ret_12_z", "ret_day_z", "gap_z", "vwap_z", "trend_z", "mkt_rs_z", "range_pos",
                   "rel_vol", "vol_ratio", "illiq_ratio", "tod"]  # the market-state fingerprint
 REGIME_NAMES = {0: "calm", 1: "normal", 2: "volatile"}
@@ -105,6 +113,7 @@ def compute(m: Market, proxy: str, d0: int = 0) -> dict[str, np.ndarray]:
             "or_pos": np.where(c > orh, (c - orh) / atr, np.where(c < orl, (c - orl) / atr, 0.0)),
             "pd_pos": np.where(c > pdh, (c - pdh) / atr, np.where(c < pdl, (c - pdl) / atr, 0.0)),
             "range_pos": (c - dl) / np.maximum(dh - dl, 1e-9), "rel_vol": v / vmean, "vol_ratio": rv12 / rv78,
+            "cost_ratio": np.array([_COSTS.get(sym, 3.0) for sym in m.symbols])[:, None, None] / (rv78 * np.sqrt(12) * 1e4),
             "illiq_ratio": ill12 / ill78, "tod": np.broadcast_to((bidx + 1) / B, c.shape).astype(float).copy(),
             # levels / raw series used by detectors, sizing and labels (not thresholdable features)
             "_r": r, "_rv12": rv12, "_rv78": rv78, "_atr": atr, "_vwap": vwap, "_dh": dh, "_dl": dl,

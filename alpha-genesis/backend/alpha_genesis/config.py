@@ -48,6 +48,10 @@ class Config:
         for env, key, cast in (("AG_PROVIDER", "provider", str), ("AG_HISTORY_START", "history_start", str), ("AG_REPLAY_RESERVE_DAYS", "replay_reserve_days", int)):
             if os.environ.get(env):                 # per-deployment overrides without editing the shared config file
                 self.alpha["data"][key] = cast(os.environ[env])
+        if os.environ.get("AG_SYMBOLS"):
+            self.alpha["universe"]["symbols"] = [x.strip().upper() for x in os.environ["AG_SYMBOLS"].split(",") if x.strip()]
+        if os.environ.get("AG_FEE_MODEL"):
+            self.alpha["execution"]["fee_model"] = os.environ["AG_FEE_MODEL"]
         self.risk = Frozen(_load(self.config_dir / "risk.toml"))
         self.policy = Frozen(_load(self.config_dir / "validation_policy.toml"))
 

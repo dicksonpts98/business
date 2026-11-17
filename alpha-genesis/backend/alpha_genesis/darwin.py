@@ -35,7 +35,7 @@ class Grammar:
         return f
 
     def cond_features(self) -> list[str]:
-        return BASE_FEATURES + (["dop_mean_z", "dop_pup"] if self.similarity else [])
+        return BASE_FEATURES + ["cost_ratio"] + (["dop_mean_z", "dop_pup"] if self.similarity else [])
 
     def allows(self, spec: StrategySpec) -> bool:
         t = spec.trigger
@@ -57,7 +57,7 @@ def _rand_cond(rng, g: Grammar, feat: str | None = None) -> dict:
 
 
 def _rand_exit(rng, event: bool) -> dict:
-    return {"max_hold": int(rng.choice([4, 6, 9, 12, 18, 24])), "stop_kind": "invalidation" if (event and rng.random() < 0.4) else "atr",
+    return {"max_hold": int(rng.choice([3, 6, 12, 12, 24, 24, 77])),     # 15, 30, 60, 120 minutes, or hold to the session close "stop_kind": "invalidation" if (event and rng.random() < 0.4) else "atr",
             "stop_atr": round(float(rng.uniform(1.0, 4.0)), 1), "target_r": None if rng.random() < 0.6 else round(float(rng.uniform(0.8, 3.0)), 1)}
 
 
@@ -84,6 +84,8 @@ def random_spec(rng, g: Grammar, family: str | None = None, hint: dict | None = 
                 filters = [hint["regime_filter"]] + filters[:1]
             if family == "combo":
                 filters = [{"feat": "dop_pup", "op": ">", "thr": round(float(rng.uniform(0.45, 0.6)), 2)}] + filters[:1]
+            if not plain and rng.random() < 0.4 and len(filters) < 3:      # selectivity: only trade when the expected move can pay for the trade
+                filters.append({"feat": "cost_ratio", "op": "<", "thr": round(float(rng.uniform(0.08, 0.4)), 2)})
             avoid = [_rand_cond(rng, g)] if (rng.random() < 0.2 and not plain) else []
             is_fade_event = trig["kind"] == "event" and not trig["invert"]
             ex = {"max_hold": 12, "stop_kind": "invalidation" if is_fade_event else "atr", "stop_atr": 2.5, "target_r": None} if plain else _rand_exit(rng, is_fade_event)
@@ -246,6 +248,27 @@ def hypothesize(ctx: Ctx, obs: dict, g: Grammar, cycle_id: int) -> list[dict]:
                 hyps.append({"family": "variant", "kind": "champion_weakness", "key": f"variant:{ch['id']}:avoid_regime_{r['regime']}",
                              "statement": f"Champion {ch['id']} loses in the {REGIME_NAMES[r['regime']]} regime ({r['n']} paper trades, mean {r['r']:.2f}R); a variant that stands aside there may be more robust.",
                              "evidence": r, "hint": {"parent": ch["id"], "avoid_regime": r["regime"]}})
+    # Failure analysis: strategies from earlier cycles that earned gross profit but lost it to costs become
+    # explicit "trade less, hold longer, demand a larger expected move" hypotheses.
+    seen_fix = set()
+    for r in ctx.db.q("""SELECT spec, dev FROM trials WHERE cycle_id IN (SELECT id FROM cycles WHERE epoch<=? AND id<?) AND json_extract(dev,'$.trades')>=60
+                         AND json_extract(dev,'$.net_cad')<0 AND json_extract(dev,'$.net_cad')+json_extract(dev,'$.cost_cad')>0
+                         ORDER BY json_extract(dev,'$.net_cad')+json_extract(dev,'$.cost_cad') DESC LIMIT 12""", (ep.id, cycle_id or 10 ** 9)):
+        d_, dv = json.loads(r["spec"]), json.loads(r["dev"])
+        d_ = {k: v for k, v in d_.items() if not k.startswith("_")}
+        try:
+            base = StrategySpec.model_validate(d_)
+        except ValidationError:
+            continue
+        key = (base.family, tuple(sorted(base.trigger.patterns)), base.trigger.feat, base.trigger.model_id, base.trigger.invert)
+        if key in seen_fix or not g.allows(base) or len(seen_fix) >= 3:
+            continue
+        seen_fix.add(key)
+        gross = dv["net_cad"] + dv["cost_cad"]
+        hyps.insert(0, {"family": "variant", "kind": "cost_drag", "key": f"costfix:{base.hash()}",
+                        "statement": f"'{base.describe()[:70]}' earned {gross:.0f} CAD gross over {dv['trades']} trades but paid {dv['cost_cad']:.0f} in costs; "
+                                     "a more selective, longer-held version may keep the gross edge and shed the cost.",
+                        "evidence": {"gross_cad": gross, "cost_cad": dv["cost_cad"], "n": dv["trades"]}, "hint": {"cost_fix": json.loads(base.model_dump_json())}})
     done = {r["subject"] for r in ctx.db.q("SELECT subject FROM kb_lessons WHERE lesson LIKE 'hypothesis_rejected%' AND cycle_id IN (SELECT id FROM cycles WHERE epoch=?)", (ep.id,))}
     out = []
     for i, h in enumerate(hyps[:14]):
@@ -303,6 +326,19 @@ class Search:
         out = []
         open_h = [h for h in hyps if h["status"] == "open"]
         for h in open_h:
+            if h["family"] == "variant" and "cost_fix" in h["hint"]:
+                base = h["hint"]["cost_fix"]
+                for thr, hold in ((0.3, 24), (0.2, 24), (0.15, 77), (0.3, 12)):
+                    d = json.loads(json.dumps(base))
+                    d["filters"] = [f for f in d["filters"] if f["feat"] != "cost_ratio"][:2] + [{"feat": "cost_ratio", "op": "<", "thr": thr}]
+                    d["exit"]["max_hold"] = max(d["exit"]["max_hold"], hold)
+                    try:
+                        s = StrategySpec.model_validate(d)
+                        if self.g.allows(s):
+                            self.evaluate(s, "cost_fix", 0, h["id"]); out.append(s.hash())
+                    except ValidationError:
+                        pass
+                continue
             if h["family"] == "variant":
                 par = registry.spec_of(self.ctx.db, h["hint"]["parent"])
                 d = json.loads(par.model_dump_json())

@@ -112,4 +112,14 @@ def decide(ctx: Ctx, arena: dict, seed: int = 0) -> list[dict]:
         registry.transition(db, cfg, best[0], "CHAMPION", "promoted to PAPER champion: beat no-trade and the incumbent on out-of-sample sessions", best[2], "arena")
         decisions.append({"strategy": best[0], "action": "CHAMPION", "evidence": best[2], "replaced": champ["id"] if champ else None})
         db.alert("info", "arena", f"{best[0]} promoted to paper champion" + (f", replacing {champ['id']}" if champ else ""))
+    # Experimental paper mode: with no champion, the best-scoring shadow strategy may trade under reduced limits.
+    if cfg.risk.paper_mode == "experimental":
+        shadows = [(by_id[r["id"]]["oos"]["score"], r["id"]) for r in registry.by_status(db, "SHADOW") if by_id.get(r["id"]) and by_id[r["id"]]["oos"]]
+        pick = max(shadows)[1] if shadows and registry.champion(db) is None else None
+        cur = registry.experimental_deployment(db)
+        if (cur["strategy_id"] if cur else None) != pick:
+            registry.deploy_experimental(db, cfg, pick, "best out-of-sample score among shadow strategies")
+            decisions.append({"strategy": pick, "action": "EXPERIMENTAL" if pick else "EXPERIMENTAL_CLEARED"})
+    elif registry.experimental_deployment(db):
+        registry.deploy_experimental(db, cfg, None)
     return decisions

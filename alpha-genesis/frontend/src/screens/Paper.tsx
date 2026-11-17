@@ -1,10 +1,13 @@
 import React, { useState } from "react";
-import { useApi, f, cad, pct, ago } from "../api";
-import { Panel, Tag, Lines, Pill, Stat, Meter, Loading, Empty, REG } from "../ui";
+import { useApi, f, cad, pct, ago, post } from "../api";
+import { Panel, Tag, Lines, Pill, Stat, Meter, Btn, Loading, Empty, REG } from "../ui";
 
 export default function Paper() {
   const { data: d, error } = useApi("/api/paper", 5000);
   const [open, setOpen] = useState<number | null>(null);
+  const { data: br, refresh: brRefresh } = useApi("/api/broker", 15000);
+  const [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false);
+  const runDiag = async () => { setBusy(true); try { await post("/api/broker/diagnostic?confirm=PAPER-DIAGNOSTIC"); } catch (e: any) { alert(e.message); } setBusy(false); setConfirming(false); brRefresh(); };
   if (!d) return <Loading error={error} />;
   const L = d.limits, s = d.summary, eq = d.equity, last = d.sessions[0]?.payload;
   const unreal = 0;
@@ -19,6 +22,31 @@ export default function Paper() {
           <Stat label="Exposure now" value={cad(d.exposure_cad)} sub={`limit ${L.max_total_exposure_x}× equity`} /><Stat label="Sessions traded" value={eq.filter((e: any) => e.strategy_id).length} sub={`${eq.length} processed`} />
           <Stat label="Guardian" value={d.halt ? <span className="text-dn">HALTED</span> : <span className="text-up">ARMED</span>} sub={d.halt || `limits sha ${d.limits_sha.slice(0, 8)}…`} />
         </div>
+      </Panel>
+      <Panel className="col-span-12" title="Alpaca paper account — synchronisation and diagnostic" tag={<Tag seg="paper-api.alpaca.markets" />}
+        right={br && <Pill v={br.reachable ? "pass" : "warn"}>{br.reachable ? "connected" : "not connected"}</Pill>}>
+        {br ? (<div className="grid grid-cols-12 gap-4 text-xs">
+          <div className="col-span-12 xl:col-span-4 space-y-1">
+            <div>Mode: <b className={br.paper_mode === "experimental" ? "text-warn" : "text-cy"}>{br.paper_mode === "experimental" ? "EXPERIMENTAL paper trading" : "VALIDATED autonomous paper trading"}</b></div>
+            <div className="text-dim">{br.paper_mode === "experimental"
+              ? `With no champion, the best Skeptic-approved shadow strategy may trade at ${cad(br.experimental_limits.risk_per_trade_cad, 2)} risk/trade, ≤ ${br.experimental_limits.max_entries_per_day} entries/day, ≤ ${cad(br.experimental_limits.max_daily_loss_cad)} daily loss. Currently: ${br.experimental_deployment || "no approved strategy — no orders"}.`
+              : "Only a promoted champion trades, at the full Risk Guardian limits. Switch modes in config/risk.toml (operator only)."}</div>
+            <div className="text-dim">Order mirroring to Alpaca paper: {br.mirror_enabled ? "on (live sessions only)" : "off — the internal paper broker executes; enable with [broker] mirror = \"alpaca_paper\""}. Live trading: {br.live_trading}.</div>
+          </div>
+          <div className="col-span-12 xl:col-span-4">
+            {br.reachable ? (<div className="grid grid-cols-2 gap-x-4 gap-y-0.5">{Object.entries(br.account).filter(([, v]) => v !== null).map(([k, v]: any) => <div key={k} className="flex justify-between"><span className="text-dim">{k.replace(/_/g, " ")}</span><span className="num">{String(v)}</span></div>)}
+              <div className="col-span-2 mt-1">Positions in sync with internal book: <Pill v={br.in_sync ? "pass" : "fail"}>{br.in_sync ? "yes" : "NO"}</Pill> · {Object.keys(br.positions).length} broker position(s) · {br.orders.length} recent order(s)</div></div>)
+              : <div className="text-warn">The paper account cannot be reached from this machine: {br.error}. Add APCA_API_KEY_ID / APCA_API_SECRET_KEY for the paper account (see docs/OPERATIONS.md).</div>}
+          </div>
+          <div className="col-span-12 xl:col-span-4">
+            {!confirming ? <Btn kind="primary" onClick={() => setConfirming(true)}>Run diagnostic paper order…</Btn> : (
+              <div className="border border-warn/50 rounded p-2 bg-warn/5"><div className="mb-2"><b>Confirm:</b> submit ONE paper order to Alpaca — buy 1 {"share"} of the market proxy as a limit order at $1.00 (it cannot fill), read it back, then cancel it. No real money is involved.</div>
+                <div className="flex gap-2"><Btn kind="danger" disabled={busy} onClick={runDiag}>{busy ? "running…" : "Yes, send the paper diagnostic"}</Btn><Btn onClick={() => setConfirming(false)}>Cancel</Btn></div></div>)}
+            {br.last_diagnostic && <div className="mt-2"><Pill v={br.last_diagnostic.ok ? "pass" : "fail"}>{br.last_diagnostic.ok ? "last diagnostic passed" : "last diagnostic failed"}</Pill> <span className="text-dim">{ago(br.last_diagnostic.ts)}</span>
+              {br.last_diagnostic.error && <div className="text-dn mt-1">{br.last_diagnostic.error}</div>}
+              {(br.last_diagnostic.steps || []).map((s: any) => <div key={s.step} className="flex gap-2 mt-0.5"><Pill v={s.ok ? "pass" : "fail"}>{s.step.replace(/_/g, " ")}</Pill><span className="text-dim truncate">{JSON.stringify(s.detail).slice(0, 90)}</span></div>)}</div>}
+          </div>
+        </div>) : <Empty>checking broker…</Empty>}
       </Panel>
       <Panel className="col-span-12 xl:col-span-8" title="Equity and session P&L (CAD)" tag={<Tag kind={d.data_kind} seg="paper trading" />}>
         {eq.length > 1 ? <Lines height={220} zero={false} labels={eq.map((e: any) => e.day)} series={[{ name: "equity", data: eq.map((e: any) => e.equity_cad), bold: true }]} fmt={(v: number) => cad(v)} /> : <Empty>No paper sessions processed yet.</Empty>}

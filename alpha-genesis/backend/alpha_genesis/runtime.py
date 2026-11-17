@@ -14,9 +14,11 @@ class Runtime:
         self.ctx = learning.bootstrap(Ctx(self.cfg), log)
         self.provider = learning.make_provider(self.ctx)
         self.engine = PaperEngine(self.ctx)
+        from .broker import AlpacaPaperBroker
+        self.alpaca_paper = AlpacaPaperBroker(self.cfg.secret("APCA_PAPER_KEY_ID") or self.cfg.secret("APCA_API_KEY_ID"),
+                                              self.cfg.secret("APCA_PAPER_SECRET_KEY") or self.cfg.secret("APCA_API_SECRET_KEY"))
         if self.cfg.alpha.get("broker", {}).get("mirror") == "alpaca_paper":      # opt-in; paper endpoint only
-            from .broker import AlpacaPaperBroker
-            self.engine.mirror = AlpacaPaperBroker(self.cfg.secret("APCA_API_KEY_ID"), self.cfg.secret("APCA_API_SECRET_KEY"))
+            self.engine.mirror = self.alpaca_paper
         self.recovery = self.engine.recover()
         self.worker = jobs.Worker(self.ctx.db, {
             "session_close": self._session, "research_cycle": self._cycle, "ablation": lambda p: learning.ablation(self.ctx),

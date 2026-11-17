@@ -146,6 +146,35 @@ def active_deployment(db: DB) -> dict | None:
     return d
 
 
+def experimental_deployment(db: DB) -> dict | None:
+    d = db.one("SELECT * FROM deployments WHERE active=2 ORDER BY id DESC LIMIT 1")
+    if d and hashlib.sha256(d["artifact"].encode()).hexdigest() != d["sha"]:
+        raise PromotionError("experimental deployment artifact failed its integrity check")
+    return d
+
+
+def deploy_experimental(db: DB, cfg, sid: str | None, reason: str = "") -> str | None:
+    """Give one Skeptic-approved SHADOW strategy an EXPERIMENTAL paper deployment (reduced limits), or clear it
+    with sid=None. Only possible when the operator has set paper_mode = "experimental"."""
+    with db.tx():
+        cur = db.one("SELECT strategy_id FROM deployments WHERE active=2")
+        if sid is None or (cur and cur["strategy_id"] != sid):
+            db.x("UPDATE deployments SET active=0 WHERE active=2")
+        if sid is None or (cur and cur["strategy_id"] == sid):
+            return sid
+        if cfg.risk.paper_mode != "experimental":
+            raise PromotionError("experimental paper trading is not enabled in risk.toml")
+        row = db.one("SELECT * FROM strategies WHERE id=?", (sid,))
+        if row is None or row["status"] != "SHADOW":
+            raise PromotionError("only a Skeptic-approved strategy in its shadow period can trade experimentally")
+        body, sha = _artifact(db, row, cfg)
+        body = body.replace('"mode": "PAPER_ONLY"', '"mode": "PAPER_EXPERIMENTAL"')
+        sha = hashlib.sha256(body.encode()).hexdigest()
+        db.x("INSERT INTO deployments(ts,strategy_id,artifact,sha,active) VALUES(?,?,?,?,2)", (time.time(), sid, body, sha))
+    db.audit("arena", "strategy.experimental_deployment", {"strategy": sid, "reason": reason})
+    return sid
+
+
 def lineage(db: DB, sid: str) -> list[dict]:
     out, cur = [], sid
     while cur:
